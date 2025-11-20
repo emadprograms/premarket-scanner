@@ -3,22 +3,24 @@
 import json
 from src.logging.app_logger import AppLogger
 
-def get_latest_economy_card_date(client, logger: AppLogger):
-    logger.log("DB: Fetching latest economy card date...")
+# src/external_services/database/queries.py
+
+def get_latest_economy_card_date(client, log_func):
+    log_func("DB: Fetching latest economy card date...")
     try:
         rs = client.execute("SELECT MAX(date) FROM economy_cards")
         return rs.rows[0][0] if rs.rows and rs.rows[0][0] else None
     except Exception as e:
-        logger.log(f"DB Error: Could not fetch latest macro date. {e}")
+        log_func(f"DB Error: Could not fetch latest macro date. {e}")
         return None
 
-def get_eod_economy_card(client, date, logger: AppLogger):
-    logger.log(f"DB: Fetching EOD Economy Card for {date}...")
+def get_eod_economy_card(client, date, log_func):
+    log_func(f"DB: Fetching EOD Economy Card for {date}...")
     try:
         rs = client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (date,))
         return json.loads(rs.rows[0][0]) if rs.rows and rs.rows[0][0] else None
     except Exception as e:
-        logger.log(f"DB Error: Could not fetch card for {date}. {e}")
+        log_func(f"DB Error: Could not fetch card for {date}. {e}")
         return None
 
 def get_all_tickers_from_db(client, logger: AppLogger):
