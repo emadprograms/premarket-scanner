@@ -1,11 +1,13 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, timezone, timedelta, time as dt_time
+from datetime import datetime, timedelta, time as dt_time
 from pytz import timezone as pytz_timezone
 from src.utils import AppLogger
 
 US_EASTERN = pytz_timezone('US/Eastern')
 MARKET_OPEN_TIME = dt_time(9, 30)
+
+# --- DB FETCHING UTILITIES ---
 
 def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLogger) -> tuple[float | None, str | None]:
     query = "SELECT close, timestamp FROM market_data WHERE symbol = ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
@@ -20,6 +22,7 @@ def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLo
 
 def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger) -> pd.DataFrame | None:
     try:
+        # We need High/Low/Close for Impact logic. Volume is optional but good to have.
         query = """
             SELECT timestamp, open, high, low, close, volume, session
             FROM market_data
@@ -39,193 +42,228 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
             df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
 
         df['dt_eastern'] = df['timestamp'].dt.tz_convert(US_EASTERN)
+        
+        # Filter for Pre-Market (04:00 - 09:30 ET)
         time_eastern = df['dt_eastern'].dt.time
-        df['session'] = np.where(time_eastern < MARKET_OPEN_TIME, 'PM', 'RTH')
+        df = df[time_eastern < MARKET_OPEN_TIME].copy()
 
-        df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
-        for col in ['Close', 'Volume', 'High', 'Low']:
+        for col in ['open', 'high', 'low', 'close']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
-
-        df.dropna(subset=['Close'], inplace=True) # Removed Volume drop dependency
+        
+        df.dropna(subset=['close'], inplace=True)
+        
+        # Normalize columns for the Engine
+        df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
         return df.reset_index(drop=True)
     except Exception as e:
         logger.log(f"Data Error ({epic}): {e}")
         return None
 
-# --- NEW: GEOMETRY & TIME ENGINE ---
-
-def calculate_geometry(df: pd.DataFrame) -> dict:
-    """Calculates Slope and Pivot Structure."""
-    if len(df) < 3:
-        return {"Slope": 0, "Structure": "Insufficient Data"}
-
-    # 1. Trajectory Slope (Linear Regression on Close)
-    try:
-        x = np.arange(len(df))
-        y = df['Close'].values
-        slope, _ = np.polyfit(x, y, 1)
-
-        # Normalize slope relative to price to make it comparable across tickers
-        # (Slope / Average Price) * 1000 to make readable integer-like numbers
-        norm_slope = (slope / np.mean(y)) * 10000
-    except:
-        norm_slope = 0
-
-    # 2. Pivot Structure (Higher Highs / Lower Lows)
-    # Divide session into 3 chunks to see progression
-    chunks = np.array_split(df, 3)
-    if len(chunks) < 3:
-        structure = "N/A"
-    else:
-        h1, h2, h3 = chunks[0]['High'].max(), chunks[1]['High'].max(), chunks[2]['High'].max()
-        l1, l2, l3 = chunks[0]['Low'].min(), chunks[1]['Low'].min(), chunks[2]['Low'].min()
-
-        if h3 > h2 > h1 and l3 > l2 > l1: structure = "Clear Bullish Staircase (HH/HL)"
-        elif h3 < h2 < h1 and l3 < l2 < l1: structure = "Clear Bearish Staircase (LH/LL)"
-        elif h3 > h1 and l3 < l1: structure = "Expanding/Volatile (Megaphone)"
-        elif h3 < h1 and l3 > l1: structure = "Compressing/Coiling (Inside)"
-        else: structure = "Mixed/Choppy"
-
-    return {"Slope": norm_slope, "Structure": structure}
-
-def calculate_time_at_price(df: pd.DataFrame) -> dict:
-    """Calculates where price spent the most time (Time at Price)."""
-    if df.empty: return {"Zone": "N/A", "Duration": 0}
-
-    try:
-        # Binning: Create 10 price buckets across the day's range
-        low = df['Low'].min()
-        high = df['High'].max()
-
-        if high == low: return {"Zone": f"${low}", "Duration": len(df)*5} # Flatline
-
-        bins = np.linspace(low, high, 10)
-        # Digitize returns the bin index for each Close price
-        indices = np.digitize(df['Close'], bins)
-
-        # Count frequency (Time)
-        counts = np.bincount(indices)
-        max_idx = counts.argmax()
-
-        # Map back to Price
-        # The indices correspond to bins. bins[i-1] to bins[i]
-        if max_idx >= len(bins): max_idx = len(bins) - 1
-        if max_idx == 0: max_idx = 1
-
-        zone_low = bins[max_idx-1]
-        zone_high = bins[max_idx] if max_idx < len(bins) else high
-
-        duration_min = counts[max_idx] * 5 # Assuming 5m bars
-        pct_time = (counts[max_idx] / len(df)) * 100
-
-        return {
-            "Zone": f"${zone_low:.2f}-${zone_high:.2f}",
-            "Duration": f"{duration_min} mins ({pct_time:.0f}%)",
-            "Raw_Pct": pct_time
-        }
-    except:
-        return {"Zone": "Error", "Duration": "0m", "Raw_Pct": 0}
-
-def analyze_level_defense(df: pd.DataFrame) -> dict:
-    """Checks how many times HOD/LOD were tested."""
-    if df.empty: return {"Support_Tests": 0, "Resistance_Tests": 0}
-
-    hod = df['High'].max()
-    lod = df['Low'].min()
-    threshold = 0.0005 # 0.05% tolerance
-
-    # Count bars touching near High
-    res_tests = len(df[df['High'] >= hod * (1 - threshold)])
-
-    # Count bars touching near Low
-    sup_tests = len(df[df['Low'] <= lod * (1 + threshold)])
-
-    return {"Support_Tests": sup_tests, "Resistance_Tests": res_tests}
-
-def process_session_data_to_summary(ticker: str, df: pd.DataFrame, live_price: float, logger: AppLogger) -> dict:
+def get_previous_session_stats(client, ticker: str, current_date_str: str, logger: AppLogger) -> dict:
     """
-    Generates a Time & Geometry focused summary.
+    Fetches Yesterday's High, Low, and Close for context.
     """
-    result = {
-        "ticker": ticker,
-        "price": live_price,
-        "slope": 0,
-        "time_zone": "N/A",
-        "summary_text": f"Data Extraction Summary: {ticker} (Insufficient Data)",
-    }
+    try:
+        # Find the latest date BEFORE the current analysis date
+        date_query = "SELECT DISTINCT date(timestamp) as d FROM market_data WHERE symbol = ? AND date(timestamp) < ? ORDER BY d DESC LIMIT 1"
+        rs_date = client.execute(date_query, [ticker, current_date_str])
+        
+        if not rs_date.rows:
+            return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
+            
+        prev_date = rs_date.rows[0][0]
+        
+        # Get Stats for that date
+        stats_query = """
+            SELECT MAX(high), MIN(low), 
+                   (SELECT close FROM market_data WHERE symbol = ? AND date(timestamp) = ? ORDER BY timestamp DESC LIMIT 1)
+            FROM market_data 
+            WHERE symbol = ? AND date(timestamp) = ?
+        """
+        rs = client.execute(stats_query, [ticker, prev_date, ticker, prev_date])
+        
+        if rs.rows:
+            r = rs.rows[0]
+            return {
+                "yesterday_high": r[0] if r[0] else 0,
+                "yesterday_low": r[1] if r[1] else 0,
+                "yesterday_close": r[2] if r[2] else 0,
+                "date": prev_date
+            }
+        return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
+    except Exception:
+        return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
 
+# ==========================================
+# THE IMPACT CONTEXT ENGINE
+# ==========================================
+
+def detect_impact_levels(df):
+    """
+    Identifies Levels based on IMPACT (Depth & Duration).
+    Formula: Score = Magnitude * Log(Duration)
+    """
+    if df.empty: return []
+    
+    avg_price = df['Close'].mean()
+    proximity_threshold = max(0.10, avg_price * 0.0015) 
+
+    # 1. Find Pivots
+    df['is_peak'] = df['High'][(df['High'].shift(1) <= df['High']) & (df['High'].shift(-1) < df['High'])]
+    df['is_valley'] = df['Low'][(df['Low'].shift(1) >= df['Low']) & (df['Low'].shift(-1) > df['Low'])]
+    
+    scored_levels = []
+
+    # --- RESISTANCE SCORING ---
+    for idx, row in df[df['is_peak'].notna()].iterrows():
+        pivot_price = row['High']
+        future_df = df.loc[idx:].iloc[1:]
+        
+        if future_df.empty: continue
+        
+        recovery_mask = future_df['High'] >= pivot_price
+        if recovery_mask.any():
+            recovery_time = recovery_mask.idxmax()
+            magnitude = pivot_price - df.loc[idx:recovery_time]['Low'].min()
+            duration_mins = (recovery_time - idx).total_seconds() / 60
+        else:
+            # Killer Wick (Never returned)
+            magnitude = pivot_price - future_df['Low'].min()
+            duration_mins = len(future_df) * 5 # Approx
+            
+        score = magnitude * np.log1p(duration_mins)
+        
+        if magnitude > (avg_price * 0.001):
+            scored_levels.append({
+                "type": "RESISTANCE", "level": pivot_price, "score": score,
+                "magnitude": magnitude, "duration": duration_mins
+            })
+
+    # --- SUPPORT SCORING ---
+    for idx, row in df[df['is_valley'].notna()].iterrows():
+        pivot_price = row['Low']
+        future_df = df.loc[idx:].iloc[1:]
+        
+        if future_df.empty: continue
+        
+        recovery_mask = future_df['Low'] <= pivot_price
+        if recovery_mask.any():
+            recovery_time = recovery_mask.idxmax()
+            magnitude = df.loc[idx:recovery_time]['High'].max() - pivot_price
+            duration_mins = (recovery_time - idx).total_seconds() / 60
+        else:
+            magnitude = future_df['High'].max() - pivot_price
+            duration_mins = len(future_df) * 5
+            
+        score = magnitude * np.log1p(duration_mins)
+        
+        if magnitude > (avg_price * 0.001):
+            scored_levels.append({
+                "type": "SUPPORT", "level": pivot_price, "score": score,
+                "magnitude": magnitude, "duration": duration_mins
+            })
+
+    # Rank & Deduplicate
+    scored_levels.sort(key=lambda x: x['score'], reverse=True)
+    final_levels = []
+    for c in scored_levels:
+        # Check if close to existing higher-ranked level
+        if not any(x['type'] == c['type'] and abs(x['level'] - c['level']) < proximity_threshold for x in final_levels):
+            final_levels.append(c)
+            
+    return final_levels[:5] # Return top 5 overall impacts
+
+def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
+    """
+    The Master Function.
+    Returns the JSON Observation Card (Migration Log + Impact Levels).
+    """
     if df is None or df.empty:
-        return result
+        return {"status": "No Data", "meta": {"ticker": ticker}}
 
-    # 1. Basic Stats
-    open_px = df.iloc[0]['Open']
-    high_px = df['High'].max()
-    low_px = df['Low'].min()
+    session_high = df['High'].max()
+    session_low = df['Low'].min()
+    current_price = df.iloc[-1]['Close']
+    total_range = session_high - session_low
+    
+    # 1. VALUE MIGRATION LOG (30-min Blocks)
+    blocks = df.resample('30min', on='timestamp')
+    migration_log = []
+    block_id = 1
+    all_block_pocs = [] # For Time-Based Acceptance
 
-    # 2. Geometry
-    geo = calculate_geometry(df)
-    slope_val = geo['Slope']
-    slope_desc = "Flat"
-    if slope_val > 5: slope_desc = "Strong Ascent"
-    elif slope_val > 1: slope_desc = "Gradual Grind Up"
-    elif slope_val < -5: slope_desc = "Steep Decline"
-    elif slope_val < -1: slope_desc = "Drifting Lower"
+    for time_window, block_data in blocks:
+        if len(block_data) == 0: continue
+        
+        # Calculate Time-Based POC (Price with most ticks/minutes)
+        # Bucket size = 0.05 for granularity
+        buckets = (block_data['Close'] / 0.05).round() * 0.05
+        poc = buckets.mode()[0]
+        all_block_pocs.append(poc)
+        
+        # Direction
+        o = block_data.iloc[0]['Open']
+        c = block_data.iloc[-1]['Close']
+        color = "Green" if c > o else "Red"
+        
+        log_entry = {
+            "block_id": block_id,
+            "time": time_window.strftime("%H:%M"),
+            "poc": round(poc, 2),
+            "candle": color,
+            "high": round(block_data['High'].max(), 2),
+            "low": round(block_data['Low'].min(), 2)
+        }
+        migration_log.append(log_entry)
+        block_id += 1
 
-    result["slope"] = f"{slope_val:.1f}"
+    # 2. IMPACT REJECTIONS
+    impact_levels = detect_impact_levels(df.copy())
+    
+    # Format for JSON
+    formatted_impacts = []
+    for lvl in impact_levels:
+        formatted_impacts.append({
+            "type": lvl['type'],
+            "price": round(lvl['level'], 2),
+            "score": round(lvl['score'], 2),
+            "note": f"Held for {int(lvl['duration'])}m after {lvl['magnitude']:.2f} move"
+        })
 
-    # 3. Time at Price
-    tap = calculate_time_at_price(df)
-    result["time_zone"] = tap["Zone"] # For X-Ray Table
+    # 3. TIME-BASED ACCEPTANCE (Stacked POCs)
+    time_levels = []
+    if len(all_block_pocs) >= 3:
+        all_block_pocs.sort()
+        cluster = [all_block_pocs[0]]
+        tolerance = current_price * 0.001 # 0.1% tolerance
+        
+        for i in range(1, len(all_block_pocs)):
+            if abs(all_block_pocs[i] - np.mean(cluster)) <= tolerance:
+                cluster.append(all_block_pocs[i])
+            else:
+                if len(cluster) >= 2: # 2+ blocks agreeing is significant
+                    time_levels.append({"price": round(np.mean(cluster), 2), "blocks": len(cluster)})
+                cluster = [all_block_pocs[i]]
+        if len(cluster) >= 2:
+            time_levels.append({"price": round(np.mean(cluster), 2), "blocks": len(cluster)})
 
-    # 4. Defense
-    defense = analyze_level_defense(df)
-
-    # 5. Opening Range Time Analysis
-    start_time = df['dt_eastern'].min()
-    end_or_time = start_time + timedelta(minutes=30)
-    df_or = df[df['dt_eastern'] <= end_or_time]
-
-    or_narrative = "N/A"
-    if not df_or.empty:
-        or_high = df_or['High'].max()
-        or_low = df_or['Low'].min()
-
-        # Calculate TIME spent above/below OR
-        bars_above = len(df[df['Close'] > or_high])
-        bars_below = len(df[df['Close'] < or_low])
-        bars_inside = len(df) - bars_above - bars_below
-
-        total_bars = len(df)
-        pct_above = (bars_above / total_bars) * 100
-        pct_below = (bars_below / total_bars) * 100
-        pct_inside = (bars_inside / total_bars) * 100
-
-        if pct_above > 60: or_narrative = f"Acceptance Higher ({pct_above:.0f}% time > ORH)"
-        elif pct_below > 60: or_narrative = f"Acceptance Lower ({pct_below:.0f}% time < ORL)"
-        elif pct_inside > 60: or_narrative = f"Range Bound ({pct_inside:.0f}% time inside OR)"
-        else: or_narrative = "Volatile / No Acceptance"
-
-    # 6. CONSTRUCT REPORT
-    date_str = df.iloc[0]['timestamp'].strftime('%Y-%m-%d')
-
-    summary_report = f"""Data Extraction Summary: {ticker} | {date_str}
-==================================================
-1. SESSION GEOMETRY & PATH
-   - Trajectory Slope: {slope_val:.2f} ({slope_desc})
-   - Structure: {geo['Structure']}
-   - Price vs Open: {'Green' if live_price > open_px else 'Red'} (${live_price:.2f} vs ${open_px:.2f})
-
-2. TIME AT PRICE (VALUE ACCEPTANCE)
-   - High Dwell Zone: {tap['Duration']} spent at {tap['Zone']}
-   - Implication: This zone represents the market's agreed 'Fair Value' for the session.
-
-3. KEY LEVEL DEFENSE (TESTS)
-   - Resistance Tests (HOD): Tested {defense['Resistance_Tests']} times.
-   - Support Tests (LOD): Tested {defense['Support_Tests']} times.
-
-4. OPENING RANGE INTERACTION (TIME WEIGHTED)
-   - Range: ${or_low:.2f} - ${or_high:.2f}
-   - Behavior: {or_narrative}
-"""
-    result["summary_text"] = summary_report
-    return result
+    # 4. CONSTRUCT JSON CARD
+    context_card = {
+        "meta": {
+            "ticker": ticker,
+            "current_price": round(current_price, 2),
+            "timestamp": df.iloc[-1]['timestamp'].strftime("%H:%M")
+        },
+        "session_extremes": {
+            "ceiling": round(session_high, 2),
+            "floor": round(session_low, 2),
+            "range": round(total_range, 2)
+        },
+        "reference_levels": ref_levels,
+        "value_migration_log": migration_log,
+        "impact_rejections": formatted_impacts,
+        "time_acceptance_levels": time_levels,
+        "summary_text": f"Observation Card Generated. Migration Steps: {len(migration_log)}. Impact Levels: {len(formatted_impacts)}."
+    }
+    
+    return context_card

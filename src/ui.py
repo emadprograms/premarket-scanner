@@ -19,7 +19,8 @@ def render_sidebar(available_models):
         else:
             st.warning(f"🟠 Simulation Mode")
             sim_date = st.date_input("Simulation Date")
-            sim_time = st.time_input("Simulation Time (UTC)", value=datetime.strptime("13:00", "%H:%M").time())
+            # Default time is 14:15 UTC
+            sim_time = st.time_input("Simulation Time (UTC)", value=datetime.strptime("14:15", "%H:%M").time())
             simulation_cutoff_dt = datetime.combine(sim_date, sim_time).replace(tzinfo=st.session_state.utc_timezone)
             st.info(f"Time Travel To: {simulation_cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
@@ -51,25 +52,32 @@ def render_main_content(mode, simulation_cutoff_dt, etf_placeholder):
         else:
             prompt_placeholder.info("Click **'Generate Economy Card'** below to construct the AI prompt.")
 
-    st.caption("2. Intermarket Data Build (Updating Live)")
+    st.caption("2. Impact Engine Monitor (Updating Live)")
+    
     if st.session_state.glassbox_etf_data:
+        # Format the cutoff time for the column header (e.g., "14:15")
+        time_label = simulation_cutoff_dt.strftime('%H:%M')
+        
         etf_placeholder.dataframe(
-            pd.DataFrame(st.session_state.glassbox_etf_data), use_container_width=True,
+            pd.DataFrame(st.session_state.glassbox_etf_data), 
+            use_container_width=True,
             column_config={
-                "Freshness": st.column_config.ProgressColumn(f"Freshness (vs {simulation_cutoff_dt.strftime('%H:%M')})", format=" ", min_value=0, max_value=1, width="small"),
-                "Audit: Date": st.column_config.TextColumn("Data Timestamp (UTC)"),
-                "Audit: Bars": st.column_config.NumberColumn("Bars"),
+                # RESTORED: Using simulation_cutoff_dt to label the column
+                "Freshness": st.column_config.ProgressColumn(
+                    f"Freshness (vs {time_label})", 
+                    format=" ", 
+                    min_value=0, 
+                    max_value=1, 
+                    width="small"
+                ),
+                "Migration Blocks": st.column_config.NumberColumn("Migration Steps", help="Number of 30m blocks analyzed"),
+                "Impact Levels": st.column_config.NumberColumn("Impact Zones", help="Number of significant rejection levels found"),
             },
         )
     else:
         etf_placeholder.info("Ready to scan. Click **'Generate Economy Card (Step 0)'** to fetch live market data.")
 
-    if st.session_state.glassbox_etf_data:
-        with st.expander("🔍 View Raw Data Strings sent to AI"):
-            st.info("Check the Live Logs or 'Prompt Preview' above to see the full generated reports.")
-
     st.markdown("---")
-
     return pm_news, eod_placeholder, prompt_placeholder
 
 def render_proximity_scan():
