@@ -75,7 +75,7 @@ class KeyManager:
     
     LIMITS_PAID = {
         'gemini-3-pro-preview': 50, # Corrected ID
-        'gemini-2.5-pro': 2000, # Increased from 100 per user request
+        'gemini-2.5-pro': 999999, # REMOVED LIMITS
         'gemini-2.0-flash': 1000
     }
 
@@ -236,14 +236,18 @@ class KeyManager:
             
             elif required_tier == self.TIER_PAID:
                 # PAID: PER-MODEL LOCK
-                config = self.MODELS_PAID.get(target_model) 
-                if config:
-                    ts_col = config[1]
-                    last_model_ts = state.get(ts_col, 0)
-                    diff = current_time - last_model_ts
-                    if diff < self.MIN_INTERVAL_SEC:
-                        rate_limited = True
-                        wait_for_this_key = self.MIN_INTERVAL_SEC - diff
+                # UNRESTRICTED ACCESS for gemini-2.5-pro
+                if target_model == 'gemini-2.5-pro':
+                     rate_limited = False
+                else:
+                    config = self.MODELS_PAID.get(target_model) 
+                    if config:
+                        ts_col = config[1]
+                        last_model_ts = state.get(ts_col, 0)
+                        diff = current_time - last_model_ts
+                        if diff < self.MIN_INTERVAL_SEC:
+                            rate_limited = True
+                            wait_for_this_key = self.MIN_INTERVAL_SEC - diff
             
             if rate_limited:
                 # log.info(f"Skipping {key_name}: Rate Limited. Wait {wait_for_this_key:.1f}s")
@@ -272,12 +276,15 @@ class KeyManager:
                     if count >= limit: usage_ok = False
             
             elif required_tier == self.TIER_PAID:
-                config = self.MODELS_PAID.get(target_model)
-                if config:
-                    count_col = config[0]
-                    count = 0 if is_new_day else state.get(count_col, 0)
-                    limit = self.LIMITS_PAID.get(target_model, 100)
-                    if count >= limit: usage_ok = False
+                if target_model == 'gemini-2.5-pro':
+                     pass # NO LIMITS
+                else:
+                    config = self.MODELS_PAID.get(target_model)
+                    if config:
+                        count_col = config[0]
+                        count = 0 if is_new_day else state.get(count_col, 0)
+                        limit = self.LIMITS_PAID.get(target_model, 100)
+                        if count >= limit: usage_ok = False
             
             if not usage_ok:
                 valid_rotation.append(key_value); continue

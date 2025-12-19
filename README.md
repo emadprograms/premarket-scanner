@@ -41,3 +41,7 @@ To run the test suite, use `pytest`:
 ```bash
 pytest
 ```
+
+## System Documentation
+
+For a deep dive into the system's "Glass Box" architecture, logic flow, and component breakdown, please refer to the **[System Structure Document](system_structure.md)**.

@@ -91,6 +91,7 @@ def main():
     if 'app_logger' not in st.session_state: st.session_state.app_logger = AppLogger(None)
 
     if 'glassbox_eod_card' not in st.session_state: st.session_state.glassbox_eod_card = None
+    if 'glassbox_eod_date' not in st.session_state: st.session_state.glassbox_eod_date = None # NEW: Track Date
     if 'glassbox_etf_data' not in st.session_state: st.session_state.glassbox_etf_data = []
     if 'glassbox_prompt' not in st.session_state: st.session_state.glassbox_prompt = None
     if 'utc_timezone' not in st.session_state: st.session_state.utc_timezone = timezone.utc
@@ -126,14 +127,30 @@ def main():
         st.session_state.last_config_signature = current_config_signature
         st.rerun() # Force immediate UI refresh to clear old data
 
+    # --- AUTO-LOAD LOGIC ---
+    # If the card is missing, try to fetch it passively.
+    if not st.session_state.glassbox_eod_card and turso:
+        # User Logic: Always fetch for PREVIOUS day (simulating Pre-Market/Morning of current day)
+        lookup_cutoff = (simulation_cutoff_dt - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+
+        latest_date = get_latest_economy_card_date(turso, lookup_cutoff, startup_logger)
+        
+        if latest_date:
+            data = get_eod_economy_card(turso, latest_date, startup_logger)
+            if data:
+                st.session_state.glassbox_eod_card = data
+                st.session_state.glassbox_eod_date = latest_date # Store for UI
+                startup_logger.log(f"Auto-loaded EOD Card for {latest_date}")
+
+
     # --- Main Content ---
     tab1, tab2 = st.tabs(["Step 1: Context Monitor", "Step 2: Head Trader"])
     logger = st.session_state.app_logger
 
     # --- TAB 1: CONTEXT MONITOR ---
     with tab1:
-        etf_placeholder = st.empty()
-        pm_news, eod_placeholder, prompt_placeholder = render_main_content(mode, simulation_cutoff_dt, etf_placeholder)
+        # Removed manual etf_placeholder = st.empty() from top, as it returns from UI function now
+        pm_news, eod_placeholder, prompt_placeholder, etf_placeholder = render_main_content(mode, simulation_cutoff_dt)
 
         if st.button("Run Context Engine (Step 0)", key="btn_step0", type="primary"):
             st.session_state.glassbox_etf_data = []
@@ -144,16 +161,21 @@ def main():
                 status.write("Fetching EOD Card...")
                 
                 # EOD Logic (Simulation aware)
-                if mode == "Simulation": 
-                    eod_search_date = (simulation_cutoff_dt - timedelta(days=1)).strftime('%Y-%m-%d')
-                else: 
-                    eod_search_date = simulation_cutoff_dt.strftime('%Y-%m-%d')
+                # EOD Logic
+                # Always fetch the PREVIOUS day's economy card relative to the analysis date.
+                # If Analysis Date is Dec 2, we need Dec 1 EOD Context.
+                # DB Query `MAX(date) <= lookup_cutoff` handles weekends (e.g. looks for Fri if Sun).
+                lookup_cutoff = (simulation_cutoff_dt - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
 
-                latest_date = get_latest_economy_card_date(turso, simulation_cutoff_str, logger)
+                latest_date = get_latest_economy_card_date(turso, lookup_cutoff, logger)
                 eod_card = {}
                 if latest_date:
                     data = get_eod_economy_card(turso, latest_date, logger)
-                    if data: eod_card = data
+                    if data: 
+                        eod_card = data
+                        st.session_state.glassbox_eod_date = latest_date # Store for UI
+                else:
+                     st.session_state.glassbox_eod_date = None
                 
                 st.session_state.glassbox_eod_card = eod_card
                 eod_placeholder.json(eod_card, expanded=False)
