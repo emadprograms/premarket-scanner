@@ -31,7 +31,7 @@ def init_db_schema(client, logger: AppLogger):
     except Exception as e:
         logger.log(f"DB Error: {e}")
 
-def get_latest_economy_card_date(client, cutoff_str: str, logger: AppLogger) -> str | None:
+def get_latest_economy_card_date(client, cutoff_str: str, logger: AppLogger) -> str:
     try:
         cutoff_date_part = cutoff_str.split(" ")[0]
         rs = client.execute(
@@ -42,7 +42,7 @@ def get_latest_economy_card_date(client, cutoff_str: str, logger: AppLogger) -> 
     except Exception:
         return None
 
-def get_eod_economy_card(client, benchmark_date: str, logger: AppLogger) -> dict | None:
+def get_eod_economy_card(client, benchmark_date: str, logger: AppLogger) -> dict:
     try:
         rs = client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (benchmark_date,))
         return json.loads(rs.rows[0][0]) if rs.rows and rs.rows[0][0] else None

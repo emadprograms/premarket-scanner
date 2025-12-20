@@ -74,8 +74,8 @@ class KeyManager:
     }
     
     LIMITS_PAID = {
-        'gemini-3-pro-preview': 50, # Corrected ID
-        'gemini-2.5-pro': 999999, # REMOVED LIMITS
+        'gemini-3-pro-preview': 50, 
+        'gemini-2.5-pro': 1_000_000, # Effectively Infinite
         'gemini-2.0-flash': 1000
     }
 
@@ -107,6 +107,7 @@ class KeyManager:
         self.dead_keys = set()
         
         self._refresh_keys_from_db()
+        log.info(f"KeyManager Initialized. DB: {self.db_url}")
 
     def _validate_schema_or_die(self):
         try:
@@ -187,7 +188,7 @@ class KeyManager:
 
         random.shuffle(self.available_keys)
 
-    def get_key(self, target_model: str, exclude_name=None) -> tuple[str | None, str | None, float]:
+    def get_key(self, target_model: str, exclude_name=None, logger=None) -> tuple[str | None, str | None, float]:
         self._reclaim_keys()
         current_time = time.time()
         
@@ -195,9 +196,15 @@ class KeyManager:
         valid_rotation = deque()
         min_cutoff_wait = float('inf') # Track minimum wait time needed
         
-        # log.info(f"Checking keys for {target_model} (Required Tier: {required_tier})")
+        # VERBOSE DEBUG
+        if logger:
+             logger.log(f"🔎 Key Check Start: {len(self.available_keys)} keys total. Target: {target_model} ({required_tier})")
+             if not self.available_keys:
+                 logger.log("⚠️ KeyManager: No keys available in pool.")
         
         keys_checked = 0
+        keys_available_snapshot = list(self.available_keys) # Snapshot for debugging
+        if logger: logger.log(f"   Pool: {[self.key_to_name.get(k, 'Unknown') for k in keys_available_snapshot]}")
         while self.available_keys:
             key_value = self.available_keys.popleft()
             keys_checked += 1
@@ -206,11 +213,12 @@ class KeyManager:
             key_tier = key_meta.get('tier', 'free')
 
             if key_tier != required_tier:
-                # log.debug(f"Skipping {key_name}: Key Tier '{key_tier}' != Req '{required_tier}'")
+                if logger: logger.log(f"⚫ Skipping '{key_name}': Tier ({key_tier}) != Req ({required_tier})")
                 valid_rotation.append(key_value)
                 continue 
 
             if exclude_name and key_name == exclude_name:
+                if logger: logger.log(f"⚫ Skipping '{key_name}': Explicit Exclude")
                 valid_rotation.append(key_value) 
                 continue
 
@@ -236,21 +244,23 @@ class KeyManager:
             
             elif required_tier == self.TIER_PAID:
                 # PAID: PER-MODEL LOCK
-                # UNRESTRICTED ACCESS for gemini-2.5-pro
-                if target_model == 'gemini-2.5-pro':
-                     rate_limited = False
-                else:
-                    config = self.MODELS_PAID.get(target_model) 
-                    if config:
-                        ts_col = config[1]
-                        last_model_ts = state.get(ts_col, 0)
-                        diff = current_time - last_model_ts
-                        if diff < self.MIN_INTERVAL_SEC:
+                config = self.MODELS_PAID.get(target_model) 
+                if config:
+                    ts_col = config[1]
+                    last_model_ts = state.get(ts_col, 0)
+                    diff = current_time - last_model_ts
+                    
+                    if target_model == 'gemini-2.5-pro':
+                         limit_to_use = 0
+                         rate_limited = False # FORCE BYPASS even if diff is negative (future timestamp)
+                    else:
+                         limit_to_use = self.MIN_INTERVAL_SEC
+                         if diff < limit_to_use:
                             rate_limited = True
-                            wait_for_this_key = self.MIN_INTERVAL_SEC - diff
+                            wait_for_this_key = limit_to_use - diff
             
             if rate_limited:
-                # log.info(f"Skipping {key_name}: Rate Limited. Wait {wait_for_this_key:.1f}s")
+                if logger: logger.log(f"   ⏳ Wait: '{key_name}' needs {wait_for_this_key:.1f}s cooldown. (Last Used: {state.get('last_used_ts', 0):.1f}, Current: {current_time:.1f})")
                 if wait_for_this_key > 0:
                     min_cutoff_wait = min(min_cutoff_wait, wait_for_this_key)
                 valid_rotation.append(key_value)
@@ -261,35 +271,38 @@ class KeyManager:
             db_day = state.get('last_success_day', '')
             is_new_day = db_day != current_day
 
+            if logger and is_new_day: logger.log(f"   📅 New Day detected for '{key_name}'. DB Day: {db_day}, Today: {current_day}")
+
             strikes = state.get('strikes', 0)
             if strikes >= self.FATAL_STRIKE_COUNT:
                 self.dead_keys.add(key_value); continue
 
             usage_ok = True
             
+            limit_val = 0
+            count_val = 0
             if required_tier == self.TIER_FREE:
                 col_name = self.MODELS_FREE.get(target_model)
                 if col_name:
-                    count = 0 if is_new_day else state.get(col_name, 0)
+                    count_val = 0 if is_new_day else state.get(col_name, 0)
                     # DYNAMIC LIMIT LOOKUP
-                    limit = self.LIMITS_FREE.get(target_model, 18) 
-                    if count >= limit: usage_ok = False
+                    limit_val = self.LIMITS_FREE.get(target_model, 18) 
+                    if count_val >= limit_val: usage_ok = False
             
             elif required_tier == self.TIER_PAID:
-                if target_model == 'gemini-2.5-pro':
-                     pass # NO LIMITS
-                else:
-                    config = self.MODELS_PAID.get(target_model)
-                    if config:
-                        count_col = config[0]
-                        count = 0 if is_new_day else state.get(count_col, 0)
-                        limit = self.LIMITS_PAID.get(target_model, 100)
-                        if count >= limit: usage_ok = False
+                config = self.MODELS_PAID.get(target_model)
+                if config:
+                    count_col = config[0]
+                    count_val = 0 if is_new_day else state.get(count_col, 0)
+                    limit_val = self.LIMITS_PAID.get(target_model, 100)
+                    if count_val >= limit_val: usage_ok = False
             
             if not usage_ok:
+                if logger: logger.log(f"🛑 Daily Limit: '{key_name}' exhausted ({count_val}/{limit_val}).")
                 valid_rotation.append(key_value); continue
 
             # Found good key
+            if logger: logger.log(f"✅ Selected Key: '{key_name}' (Tier: {key_tier})")
             self.available_keys.extendleft(reversed(valid_rotation))
             return key_name, key_value, 0.0
 
@@ -299,7 +312,8 @@ class KeyManager:
         final_wait = 5.0
         if min_cutoff_wait != float('inf'):
             final_wait = max(5.0, min_cutoff_wait + 1.0) # Add 1s buffer for safety
-            
+        
+        if logger: logger.log(f"⚠️ Exhausted {keys_checked} keys. Wait: {final_wait:.1f}s. Dead Keys: {len(self.dead_keys)}")
         return None, None, final_wait 
 
     def _reclaim_keys(self):
@@ -372,6 +386,7 @@ class KeyManager:
             log.error(f"Report Success Failed: {e}")
             
         self.available_keys.append(key)
+        # log.info(f"KeyManager: Success reported for {self.key_to_name.get(key, 'Unknown')}")
 
     def report_failure(self, key: str, is_server_error=False):
         if is_server_error:
@@ -390,6 +405,7 @@ class KeyManager:
                 "UPDATE gemini_key_status SET strikes = ?, release_time = ? WHERE key_hash = ?", 
                 [strikes, time.time() + penalty, key_hash]
             )
+            log.warning(f"KeyManager: Strike {strikes} added to {self.key_to_name.get(key, 'Unknown')}. Cooldown: {penalty}s")
         except: pass
 
     def report_fatal_error(self, key: str):

@@ -203,7 +203,9 @@ def detect_impact_levels(df):
         # SCORE CALCULATION
         # We weight Magnitude heavily. Duration acts as a multiplier.
         # Log(Duration) prevents a 2-hour drift from overpowering a sharp crash.
-        score = magnitude * np.log1p(duration_mins)
+        # SCORE CALCULATION (NORMALIZED)
+        magnitude_pct = (magnitude / pivot_price) * 100
+        score = magnitude_pct * np.log1p(duration_mins)
 
         if magnitude > (avg_price * 0.001): # Filter noise (must move at least 0.1%)
             scored_levels.append({
@@ -237,7 +239,7 @@ def detect_impact_levels(df):
             magnitude = highest_point - pivot_price
             duration_mins = len(future_df)
 
-        score = magnitude * np.log1p(duration_mins)
+        score = ((magnitude / pivot_price) * 100) * np.log1p(duration_mins)
 
         if magnitude > (avg_price * 0.001):
             scored_levels.append({

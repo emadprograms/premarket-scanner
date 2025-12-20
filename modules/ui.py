@@ -101,8 +101,4 @@ def render_proximity_scan():
 
 def render_battle_commander():
     st.header("Step 2: Head Trader Synthesis")
-    if not st.session_state.curated_tickers:
-        st.warning("Complete Step 1 first.")
-        st.stop()
-    focus_input = st.text_area("Executor's Focus", height=80)
-    return focus_input
+    return None

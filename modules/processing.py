@@ -183,10 +183,12 @@ def detect_impact_levels(df):
             else:
                  duration_mins = len(future_df) # Rough estimate or calc from index
 
-        # SCORE CALCULATION
-        score = magnitude * np.log1p(duration_mins)
+        # SCORE CALCULATION (NORMALIZED)
+        magnitude_pct = (magnitude / pivot_price) * 100
+        score = magnitude_pct * np.log1p(duration_mins)
 
-        if magnitude > (avg_price * 0.001): 
+        # LOWERED THRESHOLD TO 0.00015 (0.015%) to catch more levels
+        if magnitude > (avg_price * 0.00015): 
             scored_levels.append({
                 "type": "RESISTANCE",
                 "level": pivot_price,
@@ -232,9 +234,10 @@ def detect_impact_levels(df):
             else:
                  duration_mins = len(future_df)
 
-        score = magnitude * np.log1p(duration_mins)
+        score = ((magnitude / pivot_price) * 100) * np.log1p(duration_mins)
 
-        if magnitude > (avg_price * 0.001):
+        # LOWERED THRESHOLD TO 0.00015 (0.015%)
+        if magnitude > (avg_price * 0.00015):
             scored_levels.append({
                 "type": "SUPPORT",
                 "level": pivot_price,

@@ -51,3 +51,29 @@ $$ \text{Score} = \text{Magnitude (Price Drop)} \times \log(1 + \text{Duration (
 ## 5. Deployment Note
 *   **API Keys**: Stored in Turso DB (`gemini_api_keys` table), NOT in code.
 *   **Environment**: Requires `.streamlit/secrets.toml` with `TURSO_DB_URL` and `TURSO_AUTH_TOKEN`.
+
+## 6. Step 2: Head Trader Synthesis (The Ranking Engine)
+The **Head Trader** module (`pages/1_📈_Context_Engine.py` -> Tab 2) is responsible for taking a list of potential setups (from Proximity Scan or Watchlist) and ranking them.
+
+### Core Logic: The Narrative Synthesizer
+Unlike traditional scanners that rank by "% Change", this system ranks by **Narrative Alignment**. It uses a **3-Layer Validation Model**:
+
+1.  **Macro Alignment (The Wind)**
+    *   **Input**: The "Economy Card" generated in Step 0.
+    *   **Logic**: Does this trade align with the day's broad market bias (e.g., Risk-On, Sector Rotation)?
+    *   *Example*: If the Market is "Bearish Tech", a Long AAPL setup is penalized.
+
+2.  **Strategic Confluence (The Map)**
+    *   **Input**: The "Strategic Plan" (fetched from `company_cards` table in DB).
+    *   **Components**:
+        *   **Narrative Note**: The multi-day story for this ticker.
+        *   **Screener Briefing**: Specific prep instructions for the AI.
+        *   **Planned Levels**: Major Support/Resistance defined the night before.
+    *   **Logic**: Is price interacting with a level we *planned* for? Is the story consistent?
+
+3.  **Tactical Reality (The Terrain)**
+    *   **Input**: Real-time Pre-Market Price Action (from `glassbox_raw_cards`).
+    *   **Logic**: Is the price *actually* respecting the level right now (e.g., Migration Blocks, Impact Rejections)?
+
+### Result
+The AI outputs a **Ranked List** (Tier 1: "Top Conviction", Tier 2: "Interesting", Tier 3: "Ignore") with a specific reasoning: *"Tier 1: MSFT is actionable because it is holding Planned Support (Layer 2) which aligns with today's Tech Rotation (Layer 1)."*
