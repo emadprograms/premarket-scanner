@@ -5,6 +5,92 @@ import time
 import re
 from datetime import datetime, timezone, timedelta
 from pytz import timezone as pytz_timezone
+import plotly.graph_objects as go
+
+# ==============================================================================
+# HELPER: VISUALIZE STRUCTURE FOR USER
+# ==============================================================================
+def render_market_structure_chart(card_data):
+    """
+    Visualizes the raw JSON data sent to the AI:
+    - X-Axis: 30m Time Blocks
+    - Y-Axis: Price (Block Range)
+    - Elements: Range Bars (High/Low), POC Dots (Migration), Key Levels (Support/Resistance)
+    """
+    try:
+        if isinstance(card_data, str):
+            card_data = json.loads(card_data)
+        
+        ticker = card_data.get('meta', {}).get('ticker', 'Unknown')
+        
+        # 1. Extract Block Data
+        blocks = card_data.get('value_migration_log', [])
+        if not blocks: return None
+        
+        x_vals = []
+        highs = []
+        lows = []
+        pocs = []
+        hover_texts = []
+        
+        for b in blocks:
+            obs = b.get('observations', {})
+            x_vals.append(b.get('time_window', f"Block {b.get('block_id')}"))
+            highs.append(obs.get('block_high'))
+            lows.append(obs.get('block_low'))
+            pocs.append(obs.get('most_traded_price_level'))
+            hover_attrs = [f"{k}: {v}" for k,v in obs.items() if k != 'price_action_nature']
+            hover_texts.append("<br>".join(hover_attrs))
+
+        # 2. Build Plot
+        fig = go.Figure()
+        
+        # Range Bars (Candle-like)
+        fig.add_trace(go.Bar(
+            x=x_vals, 
+            y=[h-l for h,l in zip(highs, lows)],
+            base=lows,
+            marker_color='rgba(100, 100, 100, 0.3)',
+            name='Block Range',
+            hoverinfo='skip'
+        ))
+        
+        # POC Migration Path
+        fig.add_trace(go.Scatter(
+            x=x_vals, 
+            y=pocs,
+            mode='lines+markers',
+            marker=dict(size=8, color='#00CC96'),
+            line=dict(color='#00CC96', width=2),
+            name='Value Migration (POC)',
+            text=hover_texts,
+            hoverinfo='text+y'
+        ))
+        
+        # 3. Add Key Levels
+        rejections = card_data.get('key_level_rejections', [])
+        for r in rejections:
+            color = '#FF4136' if r['type'] == 'RESISTANCE' else '#0074D9'
+            fig.add_hline(
+                y=r['level'], 
+                line_dash="dot", 
+                line_color=color,
+                annotation_text=f"{r['type']} ({r['strength_score']})", 
+                annotation_position="top right"
+            )
+
+        fig.update_layout(
+            title=f"AI Data Visualizer: {ticker}",
+            height=300,
+            margin=dict(l=20, r=20, t=40, b=20),
+            xaxis_title="Time Blocks",
+            yaxis_title="Price",
+            template="plotly_dark",
+            showlegend=True
+        )
+        return fig
+    except Exception as e:
+        return None
 
 # ==============================================================================
 # CONFIGURATION
@@ -111,6 +197,9 @@ def main():
     if 'glassbox_etf_data' not in st.session_state: st.session_state.glassbox_etf_data = []
     if 'glassbox_raw_cards' not in st.session_state: st.session_state.glassbox_raw_cards = {} # NEW: Store full data for scanning
     if 'glassbox_prompt' not in st.session_state: st.session_state.glassbox_prompt = None
+    if 'glassbox_prompt_structure' not in st.session_state: st.session_state.glassbox_prompt_structure = {} # NEW: For Clean JSON Display
+    if 'macro_index_data' not in st.session_state: st.session_state.macro_index_data = [] # NEW: Visual Table
+    if 'macro_etf_structures' not in st.session_state: st.session_state.macro_etf_structures = [] # NEW: AI Data
     if 'utc_timezone' not in st.session_state: st.session_state.utc_timezone = timezone.utc
 
     # --- Startup ---
@@ -170,138 +259,132 @@ def main():
 
 
     # --- Main Content ---
-    tab1, tab2 = st.tabs(["Step 1: Context Monitor", "Step 2: Head Trader"])
+    # REFACTORED: 3 Tabs Strategy
+    tab1, tab2, tab3 = st.tabs([
+        "Step 1: Macro Context", 
+        "Step 2: Stock Selection", 
+        "Step 3: Stock Ranking"
+    ])
     logger = st.session_state.app_logger
 
-    # --- TAB 1: CONTEXT MONITOR ---
+    # ==============================================================================
+    # TAB 1: MACRO CONTEXT (STEP 1)
+    # ==============================================================================
     with tab1:
-        # Removed manual etf_placeholder = st.empty() from top, as it returns from UI function now
-        pm_news, eod_placeholder, prompt_placeholder, etf_placeholder = render_main_content(mode, simulation_cutoff_dt)
-
-        if st.button("Run Context Engine (Step 0)", key="btn_step0", type="primary"):
-            st.session_state.glassbox_etf_data = []
-            st.session_state.glassbox_raw_cards = {} # Reset
-            etf_placeholder.empty()
-            etf_json_cards = [] # Store full JSONs for AI context
-
-            with st.status(f"Running Impact Analysis ({mode})...", expanded=True) as status:
-                status.write("Fetching EOD Card...")
+        pm_news = render_main_content(mode, simulation_cutoff_dt)
+        
+        # --- STEP 1: MACRO CONTEXT ---
+        
+        # 1. Action Button
+        if st.button("Generate Macro Context (Step 1)", type="primary"):
+            # RESET MACRO STATE
+            st.session_state.macro_index_data = [] 
+            st.session_state.macro_etf_structures = [] 
+            
+            with st.status(f"Synthesizing Macro Narrative...", expanded=True) as status:
                 
-                # EOD Logic (Simulation aware)
-                # EOD Logic
-                # Always fetch the PREVIOUS day's economy card relative to the analysis date.
-                # If Analysis Date is Dec 2, we need Dec 1 EOD Context.
-                # DB Query `MAX(date) <= lookup_cutoff` handles weekends (e.g. looks for Fri if Sun).
+                # A. FETCH EOD
+                status.write("1. Retrieving End-of-Day Context...")
                 lookup_cutoff = (simulation_cutoff_dt - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
-
                 latest_date = get_latest_economy_card_date(turso, lookup_cutoff, logger)
+                
                 eod_card = {}
                 if latest_date:
                     data = get_eod_economy_card(turso, latest_date, logger)
                     if data: 
                         eod_card = data
-                        st.session_state.glassbox_eod_date = latest_date # Store for UI
-                else:
-                     st.session_state.glassbox_eod_date = None
-                
+                        st.session_state.glassbox_eod_date = latest_date
                 st.session_state.glassbox_eod_card = eod_card
-                eod_placeholder.json(eod_card, expanded=False)
 
-                status.write("Scanning Tickers (Impact Engine)...")
+                # B. SCAN INDICES
+                status.write("2. Scanning Core Indices (Structure)...")
                 benchmark_date_str = st.session_state.analysis_date.isoformat()
                 
-                # MERGE WATCHLIST
-                watchlist = fetch_watchlist(turso, logger)
-                full_ticker_list = sorted(list(set(CORE_INTERMARKET_TICKERS + watchlist)))
-                
-                status.write(f"Analyzing {len(full_ticker_list)} assets ({len(watchlist)} from DB Watchlist)...")
-
-                for epic in full_ticker_list:
+                progress_bar = st.progress(0)
+                for idx, epic in enumerate(CORE_INTERMARKET_TICKERS):
                     latest_price, price_ts = get_latest_price_details(turso, epic, simulation_cutoff_str, logger)
-                    
+                    print(f"DEBUG: Step 1 Scan | {epic} | Price: {latest_price} | Cutoff: {simulation_cutoff_str}") # DEBUG LOG
                     if latest_price:
-                        # 1. Get Bars
-                        df = get_session_bars_from_db(turso, epic, benchmark_date_str, simulation_cutoff_str, logger)
-                        
-                        # 2. Get Yesterday's Stats (Context)
-                        ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
-
-                        if df is not None and not df.empty:
-                            # 3. RUN THE ENGINE
+                         df = get_session_bars_from_db(turso, epic, benchmark_date_str, simulation_cutoff_str, logger)
+                         ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
+                         if df is not None and not df.empty:
                             card = analyze_market_context(df, ref_levels, ticker=epic)
+                            st.session_state.macro_etf_structures.append(json.dumps(card))
                             
-                            # Store for AI
-                            etf_json_cards.append(json.dumps(card))
-                            
-                            # Store for Proximity Scan
-                            st.session_state.glassbox_raw_cards[epic] = card
-
-                            # Update UI Table
                             mig_count = len(card.get('value_migration_log', []))
-                            imp_count = len(card.get('key_level_rejections', [])) # Use correct key name
-                            
-                            # Calculate freshness for UI bar
-                            freshness_score = 0.0
+                            imp_count = len(card.get('key_level_rejections', []))
+                            freshness = 0.0
                             try:
                                 if price_ts:
                                     ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
                                     ts_obj = datetime.fromisoformat(ts_clean)
                                     if ts_obj.tzinfo is None: ts_obj = ts_obj.replace(tzinfo=timezone.utc)
                                     lag_minutes = (simulation_cutoff_dt - ts_obj).total_seconds() / 60.0
-                                    freshness_score = max(0.0, 1.0 - (lag_minutes / 60.0))
+                                    freshness = max(0.0, 1.0 - (lag_minutes / 60.0))
                             except: pass
 
-                            new_row = {
+                            st.session_state.macro_index_data.append({
                                 "Ticker": epic,
                                 "Price": f"${latest_price:.2f}",
-                                "Freshness": freshness_score,
-                                "Audit: Date": f"{price_ts} (UTC)",
-                                "Migration Blocks": mig_count,
-                                "Impact Levels": imp_count,
-                            }
-                            st.session_state.glassbox_etf_data.append(new_row)
-                            etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), use_container_width=True)
-                            time.sleep(0.02)
+                                "Freshness": freshness,
+                                "Migration Steps": mig_count,
+                                "Impact Zones": imp_count
+                            })
+                    progress_bar.progress((idx + 1) / len(CORE_INTERMARKET_TICKERS))
+                progress_bar.empty()
 
-                if not etf_json_cards:
-                    status.update(label="Scan Aborted: No Data", state="error")
-                    if mode == "Simulation":
-                        st.error(f"⚠️ No simulation data found for {simulation_cutoff_str} (UTC). Please run Data Harvester for this historical timeframe.")
-                    else:
-                        st.error("⚠️ No live data found. Please run the Data Harvester to fetch the latest market data.")
-                    st.stop()
-
-                status.write("Synthesizing Observation Cards...")
+                # --- C. BUILD & SHOW PROMPT ---
                 
-                # NEW PROMPT STRUCTURE FOR IMPACT ENGINE
+                # Parse ETF Structures for Clean Display
+                clean_etf_structures = []
+                for s in st.session_state.macro_etf_structures:
+                    try:
+                        clean_etf_structures.append(json.loads(s))
+                    except:
+                        clean_etf_structures.append(s) 
+
+                # Construct Structured Debug Object
+                prompt_debug_data = {
+                    "system_role": "You are a Global Macro Strategist. Determine the 'Market Bias' for the Pre-Market session.",
+                    "inputs": {
+                         "1_eod_context": eod_card,
+                         "2_indices_structure": clean_etf_structures,
+                         "3_overnight_news": pm_news
+                    },
+                    "task_instructions": [
+                        "Synthesize the 'State of the Market'.",
+                        "Analyze the ETF Structure: Are major indices holding support? Migrating Up/Down?",
+                        "Sector Rotation flows.",
+                        "Output standard Economy Card JSON (marketNarrative, marketBias, sectorRotation)."
+                    ]
+                }
+                st.session_state.glassbox_prompt_structure = prompt_debug_data
+
+                status.write("3. Running AI Synthesis...")
                 prompt = f"""
                 [SYSTEM]
-                You are a Market Auction Theorist. You analyze Market Structure via Time and Impact.
+                {prompt_debug_data['system_role']}
                 
                 [INPUTS]
-                1. EOD Context: {json.dumps(eod_card)}
-                2. NEWS: {pm_news}
-                3. LIVE AUCTION DATA (JSON OBSERVATION CARDS):
-                {etf_json_cards}
+                1. PREVIOUS CLOSING CONTEXT (EOD): {json.dumps(eod_card)}
+                2. CORE INDICES STRUCTURE (Pre-Market): 
+                   (Analysis of SPY, QQQ, IWM, VIX etc. - Look for Migration & Rejections)
+                   {st.session_state.macro_etf_structures}
+                3. OVERNIGHT NEWS: {pm_news}
                 
                 [TASK]
-                Synthesize the 'State of the Auction'.
-                - Identify the Value Migration (Are POCs stepping up/down?).
-                - Identify the Impact Zones (Where is the hard rejection?).
-                - Output standard Economy Card JSON (marketNarrative, marketBias, sectorRotation).
+                {chr(10).join(['- ' + t for t in prompt_debug_data['task_instructions']])}
                 """
+                st.session_state.glassbox_prompt = prompt 
                 
-                st.session_state.glassbox_prompt = prompt
-                prompt_placeholder.text_area("Prompt Preview", prompt, height=150)
-
-                resp, error_msg = call_gemini_with_rotation(prompt, "You are an Auction Theorist.", logger, selected_model, st.session_state.key_manager_instance)
+                resp, error_msg = call_gemini_with_rotation(prompt, "You are a Macro Strategist.", logger, selected_model, st.session_state.key_manager_instance)
 
                 if resp:
                     try:
                         clean = re.search(r"(\{.*\})", resp, re.DOTALL).group(1)
                         st.session_state.premarket_economy_card = json.loads(clean)
                         st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
-                        status.update(label="Macro Card Generated", state="complete")
+                        status.update(label="Macro Context Generated", state="complete")
                         st.rerun()
                     except Exception as e:
                         status.update(label="JSON Parse Error", state="error")
@@ -310,12 +393,174 @@ def main():
                     status.update(label="AI Failed", state="error")
                     st.error(error_msg)
 
+        # 2. Results Display (Vertical Stack)
         if st.session_state.premarket_economy_card:
-            st.success("Macro Card Ready")
-            with st.expander("View Final AI Output"):
-                st.json(st.session_state.premarket_economy_card)
+            st.divider()
+            st.markdown("### ✅ Step 1 Results: Macro Context")
+            
+            # A. EOD Context
+            st.subheader("1. Previous Session Context (The Foundation)")
+            with st.expander("View EOD Details", expanded=False):
+                if st.session_state.glassbox_eod_card:
+                    st.json(st.session_state.glassbox_eod_card)
+                else:
+                    st.info("No EOD Card Found.")
+
+            # B. Index Structure
+            st.subheader("2. Pre-Market Index Structure (The Evidence)")
+            if st.session_state.macro_index_data:
+                time_label = simulation_cutoff_dt.strftime('%H:%M')
+                st.dataframe(
+                    pd.DataFrame(st.session_state.macro_index_data),
+                    use_container_width=True,
+                    column_config={
+                         "Freshness": st.column_config.ProgressColumn(f"Freshness ({time_label})", min_value=0, max_value=1, format=" ")
+                    }
+                )
+            else:
+                st.warning("⚠️ No Index Structure Data Captured. (Check DB for SPY/QQQ data)")
+            
+            # C. Prompt Packet (Visualized)
+            st.subheader("3. AI Prompt Packet (Transparency)")
+            
+            with st.expander("View Full Prompt Inputs (Visualized)", expanded=False):
+                # 3.1 EOD
+                st.markdown("**1. Previous Session Context (EOD)**")
+                if st.session_state.glassbox_eod_card:
+                    st.json(st.session_state.glassbox_eod_card, expanded=False)
+                else:
+                    st.info("No EOD Context")
+
+                # 3.2 INDICES (GRAPHS)
+                st.markdown("**2. Core Indices Structure (Visual Verification)**")
+                structures = st.session_state.glassbox_prompt_structure.get('inputs', {}).get('2_indices_structure', [])
+                if not structures and st.session_state.macro_etf_structures:
+                     # Fallback to raw list if dict missing
+                     structures = st.session_state.macro_etf_structures
+
+                if structures:
+                    for s in structures:
+                        fig = render_market_structure_chart(s)
+                        if fig:
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            # Fallback if chart fails (e.g. malformed data)
+                            st.text(str(s)[:200] + "...") 
+                else:
+                    st.warning("No Index Structure Data sent to AI.")
+
+                # 3.3 NEWS
+                st.markdown("**3. Overnight News**")
+                st.text(pm_news)
+
+                # 3.4 TASK INSTRUCTIONS
+                st.markdown("**4. Task Instructions**")
+                instructions = st.session_state.glassbox_prompt_structure.get('task_instructions', [])
+                if instructions:
+                    for i in instructions:
+                        st.markdown(f"- {i}")
+                else:
+                    st.text("Standard Macro Synthesis Task")
+
+            # D. Final Output
+            st.subheader("4. Final Macro Narrative (The Verdict)")
+            st.success(f"**Market Bias**: {st.session_state.premarket_economy_card.get('marketBias', 'N/A')}")
+            st.json(st.session_state.premarket_economy_card, expanded=True)
+
+
+    # ==============================================================================
+    # TAB 2: STOCK SELECTION (STEP 2)
+    # ==============================================================================
+    with tab2:
+        # --- SECTION B: STRUCTURE SCANNER (STEP 2a) ---
+        st.header("Step 2a: Structural Scanner")
+        
+        # Display Table Here
+        etf_placeholder = st.empty()
+        if st.session_state.glassbox_etf_data:
+             # Format the cutoff time for the column header
+            time_label = simulation_cutoff_dt.strftime('%H:%M')
+            etf_placeholder.dataframe(
+                pd.DataFrame(st.session_state.glassbox_etf_data), 
+                use_container_width=True,
+                column_config={
+                    "Freshness": st.column_config.ProgressColumn(
+                        f"Freshness (vs {time_label})", 
+                        format=" ", 
+                        min_value=0, 
+                        max_value=1, 
+                        width="small"
+                    ),
+                    "Migration Blocks": st.column_config.NumberColumn("Migration Steps", help="Number of 30m blocks analyzed"),
+                    "Impact Levels": st.column_config.NumberColumn("Impact Zones", help="Number of significant rejection levels found"),
+                },
+            )
+        else:
+             etf_placeholder.info("Ready to Scan Watchlist Structures...")
+
+        if st.button("Run Structure Scanner (Step 2a)", type="secondary"):
+            if not st.session_state.premarket_economy_card:
+                st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
+            else:
+                st.session_state.glassbox_etf_data = []
+                st.session_state.glassbox_raw_cards = {} # Reset
+                etf_placeholder.empty()
+                
+                with st.status(f"Scanning Watchlist Structures ({mode})...", expanded=True) as status:
+                    benchmark_date_str = st.session_state.analysis_date.isoformat()
+                    watchlist = fetch_watchlist(turso, logger)
+                    # STEP 1: FOCUS ON WATCHLIST (COMPANIES) ONLY
+                    # Core ETFs are handled in Step 1 for Macro Context.
+                    full_ticker_list = sorted(list(set(watchlist)))
+                    
+                    status.write(f"Analyzing {len(full_ticker_list)} assets...")
+
+                    for epic in full_ticker_list:
+                        # Use simulation time logic
+                        latest_price, price_ts = get_latest_price_details(turso, epic, simulation_cutoff_str, logger)
+                        
+                        if latest_price:
+                            df = get_session_bars_from_db(turso, epic, benchmark_date_str, simulation_cutoff_str, logger)
+                            ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
+
+                            if df is not None and not df.empty:
+                                # RUN THE ALGO
+                                card = analyze_market_context(df, ref_levels, ticker=epic)
+                                
+                                # Store for Proximity Scan
+                                st.session_state.glassbox_raw_cards[epic] = card
+
+                                # Update Table
+                                mig_count = len(card.get('value_migration_log', []))
+                                imp_count = len(card.get('key_level_rejections', []))
+                                
+                                freshness_score = 0.0
+                                try:
+                                    if price_ts:
+                                        ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
+                                        ts_obj = datetime.fromisoformat(ts_clean)
+                                        if ts_obj.tzinfo is None: ts_obj = ts_obj.replace(tzinfo=timezone.utc)
+                                        lag_minutes = (simulation_cutoff_dt - ts_obj).total_seconds() / 60.0
+                                        freshness_score = max(0.0, 1.0 - (lag_minutes / 60.0))
+                                except: pass
+
+                                new_row = {
+                                    "Ticker": epic,
+                                    "Price": f"${latest_price:.2f}",
+                                    "Freshness": freshness_score,
+                                    "Audit: Date": f"{price_ts} (UTC)",
+                                    "Migration Blocks": mig_count,
+                                    "Impact Levels": imp_count,
+                                }
+                                st.session_state.glassbox_etf_data.append(new_row)
+                                etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), use_container_width=True)
+                    
+                    status.update(label="Scanning Complete", state="complete")
+
+        st.divider()
 
         # --- PROXIMITY SCAN LOGIC (DB-BASED) ---
+        st.header("Step 2b: Proximity Logic")
         scan_threshold = render_proximity_scan()
         if scan_threshold:
             # 1. Determine Watchlist
@@ -406,15 +651,19 @@ def main():
                         results.sort(key=lambda x: x['Dist %'])
                         st.session_state.proximity_scan_results = results
                         st.dataframe(pd.DataFrame(results), use_container_width=True)
+    
                     else:
                         st.info(f"✅ No tickers within {scan_threshold}% of Strategic Levels ({ref_date_str}).") 
 
-    # --- TAB 2: HEAD TRADER ---
-    with tab2:
+    # ==============================================================================
+    # TAB 3: STOCK RANKING (STEP 3)
+    # ==============================================================================
+    with tab3: 
+
         render_battle_commander()
         
         if not st.session_state.glassbox_raw_cards:
-            st.info("ℹ️ run 'Context Engine (Step 0)' first to generate market data for ranking.")
+            st.info("ℹ️ run 'Context Engine (Step 1)' first to generate market data for ranking.")
         else:
             # 1. Selection
             col1, col2 = st.columns([3, 1])
@@ -425,7 +674,7 @@ def main():
                 default_tickers = available_tickers[:3] if len(available_tickers) >= 3 else available_tickers
                 if st.session_state.proximity_scan_results:
                     prox_tickers = [x['Ticker'] for x in st.session_state.proximity_scan_results]
-                    # Only keep those that actually have data (Step 0 ran for them)
+                    # Only keep those that actually have data (Step 1 ran for them)
                     valid_prox = [t for t in prox_tickers if t in available_tickers]
                     if valid_prox:
                         default_tickers = valid_prox
@@ -505,12 +754,17 @@ def main():
                     try:
                         # Standard Fetch Loop
                         for tkr in selected_tickers:
+                            print(f"DEBUG: Fetching Strategic Plan for {tkr}...") # RESTORED DEBUG
                             result = fetch_plan_safe(turso, tkr)
                             
                             # Check if result is an Exception (Error)
                             if isinstance(result, Exception):
+                                error_msg = str(result) # RESTORED DEBUG VARIABLE
+                                print(f"DEBUG: Initial fetch failed for {tkr}: {error_msg}")
+                                
                                 # Retry Logic with Fresh Connection
                                 try: 
+                                    print(f"DEBUG: Attempting Re-Fetch (HTTPS) for {tkr}...")
                                     from libsql_client import create_client_sync
                                     # Force HTTPS for stability
                                     fresh_url = db_url.replace("libsql://", "https://") 
@@ -523,8 +777,10 @@ def main():
                                     if isinstance(retry_res, Exception):
                                         raise retry_res # Retry also failed
                                     else:
+                                        print(f"DEBUG: Retry SUCCESS for {tkr}")
                                         strategic_plans[tkr] = retry_res # Success on retry
                                 except Exception as final_e:
+                                    print(f"DEBUG: RETRY FAILED for {tkr}: {final_e}")
                                     # BOTH ATTEMPTS FAILED - REPORT LOUDLY
                                     fetch_errors.append(f"{tkr}: {str(final_e)}")
                                     strategic_plans[tkr] = "DATA FETCH FAILED" # Placeholder for AI

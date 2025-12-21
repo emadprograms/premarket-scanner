@@ -32,62 +32,11 @@ def render_sidebar(available_models):
         return selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str
 
 def render_main_content(mode, simulation_cutoff_dt):
-    st.header("A. Macro Context (Step 0)")
+    st.header("Step 0: Macro Context")
     pm_news = st.text_area("News Input", height=100, key="pm_news_input")
-
-    st.markdown(f"### 🛠️ Glass Box: Data Stream ({mode})")
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        eod_date_str = ""
-        if 'glassbox_eod_date' in st.session_state and st.session_state.glassbox_eod_date:
-             eod_date_str = f" ({st.session_state.glassbox_eod_date})"
-        
-        st.caption(f"1. Retrieved EOD Context{eod_date_str}")
-        eod_placeholder = st.empty()
-        if st.session_state.glassbox_eod_card:
-            eod_placeholder.json(st.session_state.glassbox_eod_card, expanded=False)
-        else:
-            eod_placeholder.info("Click **'Run Context Engine'** below to fetch the latest End-of-Day context.")
-    with col2:
-        st.caption("3. Constructed AI Prompt")
-        prompt_placeholder = st.empty()
-        if st.session_state.glassbox_prompt:
-            prompt_placeholder.text_area("Prompt Preview", st.session_state.glassbox_prompt, height=150, key="glassbox_prompt_view")
-        else:
-            prompt_placeholder.info("Waiting for Live Market Scan (Step 0) to complete...")
-
-    st.caption("2. Impact Engine Monitor (Updating Live)")
     
-    # NEW LOCATION: Create the placeholder HERE so it appears under the caption
-    etf_placeholder = st.empty()
-
-    if st.session_state.glassbox_etf_data:
-        # Format the cutoff time for the column header (e.g., "14:15")
-        time_label = simulation_cutoff_dt.strftime('%H:%M')
-        
-        etf_placeholder.dataframe(
-            pd.DataFrame(st.session_state.glassbox_etf_data), 
-            use_container_width=True,
-            column_config={
-                # RESTORED: Using simulation_cutoff_dt to label the column
-                "Freshness": st.column_config.ProgressColumn(
-                    f"Freshness (vs {time_label})", 
-                    format=" ", 
-                    min_value=0, 
-                    max_value=1, 
-                    width="small"
-                ),
-                "Migration Blocks": st.column_config.NumberColumn("Migration Steps", help="Number of 30m blocks analyzed"),
-                "Impact Levels": st.column_config.NumberColumn("Impact Zones", help="Number of significant rejection levels found"),
-            },
-        )
-    else:
-        # Show Empty Shell so user knows it exists
-        empty_data = pd.DataFrame(columns=["Ticker", "Price", "Freshness", "Audit: Date", "Migration Blocks", "Impact Levels"])
-        etf_placeholder.dataframe(empty_data, use_container_width=True)
-
     st.markdown("---")
-    return pm_news, eod_placeholder, prompt_placeholder, etf_placeholder
+    return pm_news
 
 def render_proximity_scan():
     st.header("B. Proximity Scan (Step 1)")
