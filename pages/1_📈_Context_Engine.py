@@ -509,12 +509,13 @@ def main():
                             
                             # Check if result is an Exception (Error)
                             if isinstance(result, Exception):
-                                error_msg = str(result)
-                                # Retry Logic
+                                # Retry Logic with Fresh Connection
                                 try: 
                                     from libsql_client import create_client_sync
+                                    # Force HTTPS for stability
                                     fresh_url = db_url.replace("libsql://", "https://") 
                                     if not fresh_url.startswith("https://"): fresh_url = f"https://{fresh_url}"
+                                    
                                     fresh_db = create_client_sync(url=fresh_url, auth_token=auth_token)
                                     retry_res = fetch_plan_safe(fresh_db, tkr)
                                     fresh_db.close()
