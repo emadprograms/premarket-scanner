@@ -702,16 +702,21 @@ def main():
                     index=0
                 )
             
-            # 2. Action
-            if st.button("🧠 Run Head Trader (Rank Setups)", type="primary"):
+            # 2. Action Buttons
+            col_act1, col_act2 = st.columns([1, 1])
+            
+            run_ai_clicked = col_act1.button("🧠 Run Head Trader", type="primary", use_container_width=True)
+            copy_prompt_clicked = col_act2.button("📋 Generate Prompt Only", type="secondary", use_container_width=True)
+
+            if run_ai_clicked or copy_prompt_clicked:
                 if not selected_tickers:
                     st.error("Select at least one ticker.")
                 else:
-                    # Prepare Data Packet
                     # ------------------------------------------------------------------
+                    # SHARED LOGIC: GENERATE INTELLIGENCE PACKET
+                    # ------------------------------------------------------------------
+                    
                     # 1. GATHER MACRO CONTEXT (THE "WIND")
-                    # ------------------------------------------------------------------
-                    # Priority: Pre-Market Card > EOD Card > None
                     macro_context = st.session_state.premarket_economy_card
                     if not macro_context:
                         macro_context = st.session_state.glassbox_eod_card
@@ -725,10 +730,7 @@ def main():
                             "key_action": macro_context.get('marketKeyAction', 'N/A')
                         }
 
-                    # ------------------------------------------------------------------
                     # 2. GATHER STRATEGIC PLANS (THE "MAP")
-                    # ------------------------------------------------------------------
-                    # Fetch EOD cards from DB for selected tickers to get the "Thesis"
                     strategic_plans = {}
                     
                     # Safe Fetch Function (Corrected Table Schema)
@@ -749,104 +751,68 @@ def main():
                                 return {
                                     "narrative_note": card_data.get('marketNote', 'N/A'),
                                     "strategic_bias": card_data.get('basicContext', {}).get('priceTrend', 'N/A'),
-                                    "full_briefing": card_data.get('screener_briefing', 'N/A'), # The User requested specific context for AI
+                                    "full_briefing": card_data.get('screener_briefing', 'N/A'),
                                     "key_levels_note": notes,
                                     "planned_support": card_data.get('technicalStructure', {}).get('majorSupport', 'N/A'),
                                     "planned_resistance": card_data.get('technicalStructure', {}).get('majorResistance', 'N/A')
                                 }
                         except Exception as e:
-                            # Return Exception object so we can detect it
                             return e
                         return "No Plan Found in DB"
 
-                    fetch_errors = [] # Track errors for UI Reporting
+                    fetch_errors = [] 
 
                     try:
                         # Standard Fetch Loop
                         for tkr in selected_tickers:
-                            print(f"DEBUG: Fetching Strategic Plan for {tkr}...") # RESTORED DEBUG
+                            print(f"DEBUG: Fetching Strategic Plan for {tkr}...") 
                             result = fetch_plan_safe(turso, tkr)
                             
-                            # Check if result is an Exception (Error)
                             if isinstance(result, Exception):
-                                error_msg = str(result) # RESTORED DEBUG VARIABLE
+                                error_msg = str(result)
                                 print(f"DEBUG: Initial fetch failed for {tkr}: {error_msg}")
-                                
-                                # Retry Logic with Fresh Connection
+                                # Retry
                                 try: 
-                                    print(f"DEBUG: Attempting Re-Fetch (HTTPS) for {tkr}...")
                                     from libsql_client import create_client_sync
-                                    # Force HTTPS for stability
                                     fresh_url = db_url.replace("libsql://", "https://") 
                                     if not fresh_url.startswith("https://"): fresh_url = f"https://{fresh_url}"
-                                    
                                     fresh_db = create_client_sync(url=fresh_url, auth_token=auth_token)
                                     retry_res = fetch_plan_safe(fresh_db, tkr)
                                     fresh_db.close()
-                                    
-                                    if isinstance(retry_res, Exception):
-                                        raise retry_res # Retry also failed
-                                    else:
-                                        print(f"DEBUG: Retry SUCCESS for {tkr}")
-                                        strategic_plans[tkr] = retry_res # Success on retry
+                                    if isinstance(retry_res, Exception): raise retry_res 
+                                    else: strategic_plans[tkr] = retry_res 
                                 except Exception as final_e:
-                                    print(f"DEBUG: RETRY FAILED for {tkr}: {final_e}")
-                                    # BOTH ATTEMPTS FAILED - REPORT LOUDLY
                                     fetch_errors.append(f"{tkr}: {str(final_e)}")
-                                    strategic_plans[tkr] = "DATA FETCH FAILED" # Placeholder for AI
+                                    strategic_plans[tkr] = "DATA FETCH FAILED" 
                             else:
                                 strategic_plans[tkr] = result
-
                     except Exception as e:
                         st.error(f"Critical Error in Plan Fetching Logic: {e}")
 
-                    # ------------------------------------------------------------------
-                    # ERROR REPORTING (LOUD)
-                    # ------------------------------------------------------------------
+                    # Error Reporting
                     if fetch_errors:
                         st.error("⚠️ DATA FETCH ERRORS DETECTED:")
-                        for err in fetch_errors:
-                            st.write(f"❌ {err}")
-                        st.warning("Proceeding with incomplete data... (AI may lack strategic context for these tickers)")
+                        for err in fetch_errors: st.write(f"❌ {err}")
+                        st.warning("Proceeding with incomplete data...")
 
-                    # ------------------------------------------------------------------
-                    # 3. BUILD THE PACKET (STRATEGY vs REALITY)
-                    # ------------------------------------------------------------------
+                    # 3. BUILD THE PACKET
                     context_packet = []
                     for t in selected_tickers:
                         card = st.session_state.glassbox_raw_cards[t]
                         
-                        # FILTER: Strictly Pre-Market Data (Up to Simulation Time)
-                        # 1. Get Simulation Time (UTC) to match Data Logs (UTC)
+                        # Filter Pre-Market Data
                         sim_dt_utc = simulation_cutoff_dt
-                        sim_time_str = sim_dt_utc.strftime('%H:%M') # e.g. "14:00" for 09:00 ET
+                        sim_time_str = sim_dt_utc.strftime('%H:%M') 
                         
-                        # DEBUG: Show what the filter sees
-                        with st.expander(f"Debug Filter for {t}", expanded=False):
-                            st.write(f"Sim Time (UTC): **{sim_time_str}**")
-                            
-                            col_d1, col_d2 = st.columns(2)
-                            with col_d1:
-                                st.markdown("#### 🗺️ Strategic Plan (The Map)")
-                                st.json(strategic_plans.get(t, {}))
-                            with col_d2:
-                                st.markdown("#### 📼 Tactical Reality (The Tape)")
-                                st.json(card)
-
                         raw_migration = card['value_migration_log']
                         pm_migration = []
                         for block in raw_migration:
                             try:
-                                # Format is "HH:MM - HH:MM"
                                 start_time = block['time_window'].split(' - ')[0].strip()
-                                
-                                # Logic: Keep only if block STARTS before the cutoff time
                                 if start_time < sim_time_str:
                                     pm_migration.append(block)
-                            except Exception:
-                                continue 
+                            except: continue 
 
-                        # Construct the "Courtroom Evidence"
                         evidence = {
                             "ticker": t,
                             "STRATEGIC_PLAN (The Thesis)": strategic_plans.get(t, "No Plan Found"),
@@ -859,27 +825,48 @@ def main():
                         context_packet.append(evidence)
                     
                     # ------------------------------------------------------------------
-                    # 4. HEAD TRADER PROMPT (THE "NARRATIVE SYNTHESIZER")
+                    # 4. CONSTRUCT PROMPT (MODULAR)
                     # ------------------------------------------------------------------
-                    head_trader_prompt = f"""
+                    
+                    # PART 1: CONTEXT & ROLE
+                    prompt_part_1 = f"""
                     [ROLE]
                     You are the Head Trader of a proprietary trading desk. Your job is NOT just to find "movers", but to validate **Thesis Alignment**.
                     
                     [GLOBAL MACRO CONTEXT]
                     (The "Wind" - Only take trades that sail WITH this wind)
                     {json.dumps(macro_summary, indent=2)}
+                    """
+
+                    # PART 2: DATA PACKET (CHUNKS)
+                    # Split context_packet into smaller chunks (e.g. 3 tickers per chunk)
+                    chunk_size = 3
+                    p2_chunks = []
                     
-                    [CANDIDATE ANALYSIS]
-                    For each ticker, compare the "STRATEGIC_PLAN" (What we wanted to happen) with the "TACTICAL_REALITY" (What is actually happening).
-                    {json.dumps(context_packet, indent=2)}
-                    
+                    for i in range(0, len(context_packet), chunk_size):
+                        chunk = context_packet[i:i + chunk_size]
+                        chunk_str = f"""
+                        [CANDIDATE ANALYSIS - BATCH {len(p2_chunks) + 1}]
+                        For this batch of tickers, compare "STRATEGIC_PLAN" with "TACTICAL_REALITY".
+                        {json.dumps(chunk, indent=2)}
+                        """
+                        p2_chunks.append(chunk_str)
+
+                    # CONSTRUCT FULL PART 2 (For API)
+                    prompt_part_2_full = "\n".join(p2_chunks)
+
+                    # PART 3: TASK & OUTPUT
+                    prompt_part_3 = f"""
                     [TASK]
-                    Rank these setups from BEST to WORST based on the **3-Layer Validation Model**.
+                    Rank ALL tickers provided in previous batches from BEST to WORST based on the **3-Layer Validation Model**.
                     
                     **CRITICAL PHILOSOPHY**:
                     - **Efficient Markets**: The news is priced in. Do not chase headlines.
                     - **The Edge**: We trade the **PARTICIPATION GAP** (the dislocation between the Pre-Market Move and the Open).
                     - *Ideal Setup*: A ticker has reacted to news, moved to a Strategic Support Level, and is now waiting for the Open to reverse.
+
+                    **CONSTRAINTS**:
+                    - **NO EXTERNAL DATA**: You must NOT browse the internet or use outside knowledge. Rank these tickers SOLELY based on the "STRATEGIC_PLAN" and "TACTICAL_REALITY" provided in the input.
 
                     **RANKING CRITERIA**:
                     
@@ -898,25 +885,65 @@ def main():
                     3. ...
                     """
 
-                    # Display Prompt for User Review
-                    with st.expander("👁️ View Head Trader Prompt (Debug)", expanded=False):
-                        st.code(head_trader_prompt, language="text")
+                    # Combine for AI
+                    head_trader_prompt = prompt_part_1 + "\n" + prompt_part_2_full + "\n" + prompt_part_3
+                    
+                    # SAVE TO SESSION STATE (Persist for UI Toggles)
+                    st.session_state.ht_prompt_parts = {
+                        "p1": prompt_part_1,
+                        "p2_chunks": p2_chunks, # List of strings
+                        "p3": prompt_part_3,
+                        "full": head_trader_prompt
+                    }
+                    st.session_state.ht_ready = True
 
-                    with st.spinner(f"Head Trader ({ht_model}) is analyzing Market Structure..."):
-                        # Call AI
-                        ht_response, err = call_gemini_with_rotation(
-                            head_trader_prompt, 
-                            "You are a Head Trader.", 
-                            logger, 
-                            ht_model, # Use local selection 
-                            st.session_state.key_manager_instance
-                        )
-                        
-                        if ht_response:
-                            st.markdown("### 🏆 Head Trader's Ranking")
-                            st.markdown(ht_response)
-                        else:
-                            st.error(f"Head Trader Failed: {err}")
+                    # ------------------------------------------------------------------
+                    # EXECUTION (Only if 'Run' clicked)
+                    # ------------------------------------------------------------------
+                    if run_ai_clicked:
+                        with st.spinner(f"Head Trader ({ht_model}) is analyzing Market Structure..."):
+                            ht_response, err = call_gemini_with_rotation(
+                                head_trader_prompt, 
+                                "You are a Head Trader.", 
+                                logger, 
+                                ht_model, 
+                                st.session_state.key_manager_instance
+                            )
+                            
+                            if ht_response:
+                                st.markdown("### 🏆 Head Trader's Ranking")
+                                st.markdown(ht_response)
+                            else:
+                                st.error(f"Head Trader Failed: {err}")
+
+            # ------------------------------------------------------------------
+            # PERSISTENT DISPLAY LOGIC (Outside Button Block)
+            # ------------------------------------------------------------------
+            if st.session_state.get("ht_ready"):
+                st.success("✅ Prompt Generated!")
+                st.markdown("### 📋 AI Prompt (Copy/Paste)")
+                
+                parts = st.session_state.ht_prompt_parts
+                split_mode = st.checkbox("✂️ Split into Parts (for Limited Context AIs)", value=False)
+                
+                if split_mode:
+                    # PART 1
+                    st.caption("Part 1: Macro Context")
+                    p1_wait = parts['p1'] + "\n\n[SYSTEM NOTE: PART 1. READ THE CONTEXT, DO NOT GENERATE OUTPUT. REPLY 'READY FOR DATA'.]"
+                    st.code(p1_wait, language="text")
+                    
+                    # PART 2 (CHUNKS)
+                    chunks = parts.get('p2_chunks', [])
+                    for i, chunk in enumerate(chunks):
+                        st.caption(f"Part 2-{i+1}: Candidate Batch {i+1}/{len(chunks)}")
+                        chunk_wait = chunk + f"\n\n[SYSTEM NOTE: DATA BATCH {i+1} OF {len(chunks)}. DO NOT GENERATE OUTPUT YET. REPLY 'READY FOR NEXT BATCH'.]"
+                        st.code(chunk_wait, language="text")
+                    
+                    # PART 3
+                    st.caption("Part 3: Ranking Logic")
+                    st.code(parts['p3'], language="text")
+                else:
+                    st.code(parts['full'], language="text")
 
 if __name__ == "__main__":
     main()
