@@ -32,14 +32,15 @@ def render_sidebar(available_models):
         return selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str
 
 def render_main_content(mode, simulation_cutoff_dt):
-    st.header("Step 0: Macro Context")
+    st.header("Step 1: Macro Context")
     pm_news = st.text_area("News Input", height=100, key="pm_news_input")
     
     st.markdown("---")
     return pm_news
 
 def render_proximity_scan():
-    st.header("B. Proximity Scan (Step 1)")
+    # Header handled in Context_Engine.py
+
     pct_threshold = st.slider("Proximity %", 0.1, 5.0, 2.5)
     if st.button("Run Proximity Scan"):
         if not st.session_state.latest_macro_date:
@@ -49,5 +50,5 @@ def render_proximity_scan():
     return None
 
 def render_battle_commander():
-    st.header("Step 2: Head Trader Synthesis")
+    st.header("Step 3: Head Trader Synthesis")
     return None

@@ -345,16 +345,17 @@ def main():
 
                 # Construct Structured Debug Object
                 prompt_debug_data = {
-                    "system_role": "You are a Global Macro Strategist. Determine the 'Market Bias' for the Pre-Market session.",
+                    "system_role": "You are a Global Macro Strategist. Your goal is to synthesize an OBJECTIVE 'Market Narrative' (The Story) based on the evidence. Do not force a bias if the market is mixed.",
                     "inputs": {
                          "1_eod_context": eod_card,
                          "2_indices_structure": clean_etf_structures,
                          "3_overnight_news": pm_news
                     },
                     "task_instructions": [
-                        "Synthesize the 'State of the Market'.",
-                        "Analyze the ETF Structure: Are major indices holding support? Migrating Up/Down?",
-                        "Sector Rotation flows.",
+                        "Synthesize the 'State of the Market' into a clear Narrative.",
+                        "ASSUME EFFICIENT MARKETS: The news is already priced in. Focus on the *reaction* to the news (e.g. Good news + Drop = Bearish).",
+                        "Analyze the ETF Structure: Are indices confirming a direction or is it mixed/choppy?",
+                        "Identify the dominant story driving price (e.g., Inflation Fear, Tech Earnings, Geopolitics).",
                         "Output standard Economy Card JSON (marketNarrative, marketBias, sectorRotation)."
                     ]
                 }
@@ -462,10 +463,19 @@ def main():
                 else:
                     st.text("Standard Macro Synthesis Task")
 
-            # D. Final Output
-            st.subheader("4. Final Macro Narrative (The Verdict)")
-            st.success(f"**Market Bias**: {st.session_state.premarket_economy_card.get('marketBias', 'N/A')}")
-            st.json(st.session_state.premarket_economy_card, expanded=True)
+            # D. Final Output (Refactored for Narrative Focus)
+            st.subheader("4. The Market Narrative (The Story)")
+            
+            # Narrative First
+            narrative = st.session_state.premarket_economy_card.get('marketNarrative', 'N/A')
+            st.info(f"**📖 Narrative**: {narrative}")
+
+            # Bias as a Metric
+            bias = st.session_state.premarket_economy_card.get('marketBias', 'Neutral')
+            st.metric("Market Bias (Technical Label)", bias)
+
+            with st.expander("View Full Context JSON"):
+                st.json(st.session_state.premarket_economy_card)
 
 
     # ==============================================================================
@@ -864,7 +874,14 @@ def main():
                     {json.dumps(context_packet, indent=2)}
                     
                     [TASK]
-                    Rank these setups from BEST to WORST based on the **3-Layer Validation Model**:
+                    Rank these setups from BEST to WORST based on the **3-Layer Validation Model**.
+                    
+                    **CRITICAL PHILOSOPHY**:
+                    - **Efficient Markets**: The news is priced in. Do not chase headlines.
+                    - **The Edge**: We trade the **PARTICIPATION GAP** (the dislocation between the Pre-Market Move and the Open).
+                    - *Ideal Setup*: A ticker has reacted to news, moved to a Strategic Support Level, and is now waiting for the Open to reverse.
+
+                    **RANKING CRITERIA**:
                     
                     1. **Macro Alignment**: Does the ticker's direction/sector match the Global Macro Context? (e.g. If Macro says "Tech Weakness", a Long Tech setup is DANGEROUS).
                     2. **Structural Confluence**: Do the "Impact Zones" found in Pre-Market MATCH the "Planned Support/Resistance" in the Strategic Plan? 
