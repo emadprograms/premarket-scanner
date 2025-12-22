@@ -1,12 +1,12 @@
 import streamlit as st
 
 st.set_page_config(
-    page_title="Antigravity Engine",
+    page_title="Pre-Market Analyst",
     page_icon="🧠",
     layout="wide"
 )
 
-st.title("🧠 Antigravity Pre-Market Engine")
+st.title("🧠 Pre-Market Analyst Engine")
 st.markdown("### *Algorithmic Context & Trade Selection System*")
 
 st.divider()

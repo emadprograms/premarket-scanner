@@ -50,7 +50,7 @@ def render_market_structure_chart(card_data):
             x=x_vals, 
             y=[h-l for h,l in zip(highs, lows)],
             base=lows,
-            marker_color='rgba(100, 100, 100, 0.3)',
+            marker_color='rgba(100, 149, 237, 0.6)',
             name='Block Range',
             hoverinfo='skip'
         ))
@@ -356,7 +356,7 @@ def main():
                         "ASSUME EFFICIENT MARKETS: The news is already priced in. Focus on the *reaction* to the news (e.g. Good news + Drop = Bearish).",
                         "Analyze the ETF Structure: Are indices confirming a direction or is it mixed/choppy?",
                         "Identify the dominant story driving price (e.g., Inflation Fear, Tech Earnings, Geopolitics).",
-                        "Output standard Economy Card JSON (marketNarrative, marketBias, sectorRotation)."
+"Output RAW JSON ONLY. No markdown formatting, no code blocks, no trailing text. Schema: { 'marketNarrative': string, 'marketBias': string, 'sectorRotation': dict, 'marketKeyAction': string }."
                     ]
                 }
                 st.session_state.glassbox_prompt_structure = prompt_debug_data
@@ -390,6 +390,8 @@ def main():
                     except Exception as e:
                         status.update(label="JSON Parse Error", state="error")
                         st.error(f"AI Error: {e}")
+                        with st.expander("Diagnostic: Raw AI Output (Failed to Parse)"):
+                            st.code(resp)
                 else:
                     status.update(label="AI Failed", state="error")
                     st.error(error_msg)
@@ -566,6 +568,22 @@ def main():
                                 etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), use_container_width=True)
                     
                     status.update(label="Scanning Complete", state="complete")
+        
+        # VISUALIZATION (New Feature)
+        if st.session_state.glassbox_raw_cards:
+            with st.expander("🔍 View Company Structure Charts (Visualized)", expanded=False):
+                companies = sorted(list(st.session_state.glassbox_raw_cards.keys()))
+                st.caption(f"Visualizing {len(companies)} Asset Structures:")
+                
+                for tkr in companies:
+                    st.markdown(f"### {tkr}")
+                    card_data = st.session_state.glassbox_raw_cards[tkr]
+                    fig = render_market_structure_chart(card_data)
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning(f"No chart data for {tkr}")
+                    st.divider()
 
         st.divider()
 
