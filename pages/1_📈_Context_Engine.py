@@ -716,7 +716,7 @@ def main():
                 # Local Model Selector for Head Trader
                 ht_model = st.selectbox(
                     "Head Trader Model", 
-                    ["gemini-2.5-pro", "gemini-2.0-flash", "gemini-exp-1206"], 
+                    ["gemini-2.5-pro", "gemini-2.0-flash", "gemini-3.0-flash-preview", "gemini-exp-1206"], 
                     index=0
                 )
             

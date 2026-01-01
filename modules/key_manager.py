@@ -36,11 +36,14 @@ CREATE TABLE IF NOT EXISTS gemini_key_status (
     daily_3_pro INTEGER NOT NULL DEFAULT 0,
     daily_2_5_pro INTEGER NOT NULL DEFAULT 0,
     daily_2_0_flash INTEGER NOT NULL DEFAULT 0,
+    daily_3_0_flash INTEGER NOT NULL DEFAULT 0,
 
     ts_3_pro REAL NOT NULL DEFAULT 0,
     ts_2_5_pro REAL NOT NULL DEFAULT 0,
-    ts_2_0_flash REAL NOT NULL DEFAULT 0
+    ts_2_0_flash REAL NOT NULL DEFAULT 0,
+    ts_3_0_flash REAL NOT NULL DEFAULT 0
 );
+
 """
 
 class KeyManager:
@@ -52,9 +55,10 @@ class KeyManager:
 
     # MAPPINGS: Model -> (Count Column, Timestamp Column)
     MODELS_PAID = { 
-        'gemini-3-pro-preview': ('daily_3_pro', 'ts_3_pro'), # Corrected ID
+        'gemini-3-pro-preview': ('daily_3_pro', 'ts_3_pro'), 
         'gemini-2.5-pro': ('daily_2_5_pro', 'ts_2_5_pro'),
-        'gemini-2.0-flash': ('daily_2_0_flash', 'ts_2_0_flash')
+        'gemini-2.0-flash': ('daily_2_0_flash', 'ts_2_0_flash'),
+        'gemini-3.0-flash-preview': ('daily_3_0_flash', 'ts_3_0_flash')
     }
     
     # Free Tier Mapping: Model -> Count Column
@@ -76,7 +80,8 @@ class KeyManager:
     LIMITS_PAID = {
         'gemini-3-pro-preview': 50, 
         'gemini-2.5-pro': 1_000_000, # Effectively Infinite
-        'gemini-2.0-flash': 1000
+        'gemini-2.0-flash': 1000,
+        'gemini-3.0-flash-preview': 1000
     }
 
     COOLDOWN_PERIODS = {1: 60, 2: 600, 3: 3600, 4: 86400} 
@@ -113,7 +118,7 @@ class KeyManager:
         try:
             rs = self.db_client.execute("SELECT * FROM gemini_key_status LIMIT 0")
             cols = list(rs.columns)
-            required = ['daily_free_gemma_27b', 'ts_3_pro']
+            required = ['daily_free_gemma_27b', 'ts_3_pro', 'daily_3_0_flash']
             missing = [c for c in required if c not in cols]
             if missing:
                 raise RuntimeError(f"CRITICAL: DB missing columns {missing}. Run reset_db.py.")
@@ -353,7 +358,7 @@ class KeyManager:
                 # Reset ALL counters (Including Gemma)
                 cols = [
                     'daily_free_lite', 'daily_free_flash', 'daily_free_gemma_27b', 'daily_free_gemma_12b',
-                    'daily_3_pro', 'daily_2_5_pro', 'daily_2_0_flash'
+                    'daily_3_pro', 'daily_2_5_pro', 'daily_2_0_flash', 'daily_3_0_flash'
                 ]
                 set_clause = ", ".join([f"{c} = 0" for c in cols])
                 

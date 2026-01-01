@@ -71,10 +71,12 @@ CREATE TABLE IF NOT EXISTS gemini_key_status (
     daily_3_pro INTEGER NOT NULL DEFAULT 0,
     daily_2_5_pro INTEGER NOT NULL DEFAULT 0,
     daily_2_0_flash INTEGER NOT NULL DEFAULT 0,
+    daily_3_0_flash INTEGER NOT NULL DEFAULT 0,
 
     ts_3_pro REAL NOT NULL DEFAULT 0,
     ts_2_5_pro REAL NOT NULL DEFAULT 0,
-    ts_2_0_flash REAL NOT NULL DEFAULT 0
+    ts_2_0_flash REAL NOT NULL DEFAULT 0,
+    ts_3_0_flash REAL NOT NULL DEFAULT 0
 );
 """
 
