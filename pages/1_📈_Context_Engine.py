@@ -135,6 +135,7 @@ except ImportError as e:
     st.error(f"❌ CRITICAL MISSING FILE: {e}")
     st.stop()
 
+
 # ==============================================================================
 # HELPER FUNCTIONS
 # ==============================================================================
@@ -318,8 +319,15 @@ def main():
                                 if price_ts:
                                     ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
                                     ts_obj = datetime.fromisoformat(ts_clean)
-                                    if ts_obj.tzinfo is None: ts_obj = ts_obj.replace(tzinfo=timezone.utc)
-                                    lag_minutes = (simulation_cutoff_dt - ts_obj).total_seconds() / 60.0
+                                    # FIX: DB timestamps are UTC. Simulation is ET.
+                                    if ts_obj.tzinfo is None: 
+                                        utc_tz = pytz_timezone('UTC')
+                                        ts_obj = utc_tz.localize(ts_obj)
+                                    
+                                    # Convert to ET for comparison
+                                    ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                                    
+                                    lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
                                     freshness = max(0.0, 1.0 - (lag_minutes / 60.0))
                             except: pass
 
@@ -327,11 +335,19 @@ def main():
                                 "Ticker": epic,
                                 "Price": f"${latest_price:.2f}",
                                 "Freshness": freshness,
+                                "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
+                                "DB Time": str(price_ts) if price_ts else "N/A",       # DEBUG
                                 "Migration Steps": mig_count,
                                 "Impact Zones": imp_count
                             })
                     progress_bar.progress((idx + 1) / len(CORE_INTERMARKET_TICKERS))
                 progress_bar.empty()
+
+                # CRITICAL CHECK: PREVENT EMPTY API CALLS
+                if not st.session_state.macro_etf_structures:
+                    status.update(label="Aborted: No DB Data", state="error")
+                    st.error("❌ No Market Data found in DB (Core Indices). Aborting AI Call to save credits.")
+                    st.stop()
 
                 # --- C. BUILD & SHOW PROMPT ---
                 
@@ -415,7 +431,7 @@ def main():
                 time_label = simulation_cutoff_dt.strftime('%H:%M')
                 st.dataframe(
                     pd.DataFrame(st.session_state.macro_index_data),
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                          "Freshness": st.column_config.ProgressColumn(f"Freshness ({time_label})", min_value=0, max_value=1, format=" ")
                     }
@@ -445,7 +461,7 @@ def main():
                     for s in structures:
                         fig = render_market_structure_chart(s)
                         if fig:
-                            st.plotly_chart(fig, use_container_width=True)
+                            st.plotly_chart(fig, width="stretch")
                         else:
                             # Fallback if chart fails (e.g. malformed data)
                             st.text(str(s)[:200] + "...") 
@@ -494,7 +510,7 @@ def main():
             time_label = simulation_cutoff_dt.strftime('%H:%M')
             etf_placeholder.dataframe(
                 pd.DataFrame(st.session_state.glassbox_etf_data), 
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     "Freshness": st.column_config.ProgressColumn(
                         f"Freshness (vs {time_label})", 
@@ -551,8 +567,15 @@ def main():
                                     if price_ts:
                                         ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
                                         ts_obj = datetime.fromisoformat(ts_clean)
-                                        if ts_obj.tzinfo is None: ts_obj = ts_obj.replace(tzinfo=timezone.utc)
-                                        lag_minutes = (simulation_cutoff_dt - ts_obj).total_seconds() / 60.0
+                                        # FIX: DB timestamps are UTC. Simulation is ET.
+                                        if ts_obj.tzinfo is None: 
+                                            utc_tz = pytz_timezone('UTC')
+                                            ts_obj = utc_tz.localize(ts_obj)
+                                        
+                                        # Convert to ET for comparison
+                                        ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                                        
+                                        lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
                                         freshness_score = max(0.0, 1.0 - (lag_minutes / 60.0))
                                 except: pass
 
@@ -560,12 +583,13 @@ def main():
                                     "Ticker": epic,
                                     "Price": f"${latest_price:.2f}",
                                     "Freshness": freshness_score,
-                                    "Audit: Date": f"{price_ts} (UTC)",
+                                    "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
+                                    "Audit: Date": f"{price_ts}",
                                     "Migration Blocks": mig_count,
                                     "Impact Levels": imp_count,
                                 }
                                 st.session_state.glassbox_etf_data.append(new_row)
-                                etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), use_container_width=True)
+                                etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), width="stretch")
                     
                     status.update(label="Scanning Complete", state="complete")
         
@@ -580,7 +604,7 @@ def main():
                     card_data = st.session_state.glassbox_raw_cards[tkr]
                     fig = render_market_structure_chart(card_data)
                     if fig:
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
                     else:
                         st.warning(f"No chart data for {tkr}")
                     st.divider()
@@ -602,14 +626,17 @@ def main():
                 ref_date_dt = analysis_dt - timedelta(days=1)
                 ref_date_str = ref_date_dt.strftime('%Y-%m-%d')
                 
-                st.write(f"🔍 Loading Strategic Plans from **{ref_date_str}** for {len(whitelist)} tickers...")
-                
                 # 3. Fetch Stored Plans (S/R Levels)
-                db_plans = get_eod_card_data_for_screener(turso, whitelist, ref_date_str, logger)
+                with st.spinner(f"Searching for Strategic Plans (Target: {ref_date_str})..."):
+                    db_plans = get_eod_card_data_for_screener(turso, whitelist, ref_date_str, logger)
                 
                 if not db_plans:
-                     st.error(f"❌ No Strategic Plans found in DB for {ref_date_str}. Please ensure 'Head Trader' ran for that date.")
+                     st.error(f"❌ No Strategic Plans found in DB (<= {ref_date_str}). Please ensure 'Head Trader' ran recently.")
                 else:
+                    # Identify Actual Dates
+                    found_dates = sorted(list(set(d.get('plan_date', 'Unknown') for d in db_plans.values())))
+                    date_display = ", ".join(found_dates)
+                    st.write(f"🔍 **Loaded Strategic Plans from: {date_display}** ({len(db_plans)} tickers)")
                     results = []
                     # 4. Scan
                     progress_bar = st.progress(0)
@@ -651,7 +678,7 @@ def main():
                                         "Type": "SUPPORT",
                                         "Level": lvl,
                                         "Dist %": round(dist_pct, 2),
-                                        "Source": f"Plan {ref_date_str}"
+                                        "Source": f"Plan {plan.get('plan_date', ref_date_str)}"
                                     }
 
                         # Check Resistance
@@ -666,7 +693,7 @@ def main():
                                         "Type": "RESISTANCE",
                                         "Level": lvl,
                                         "Dist %": round(dist_pct, 2),
-                                        "Source": f"Plan {ref_date_str}"
+                                        "Source": f"Plan {plan.get('plan_date', ref_date_str)}"
                                     }
                         
                         if best_match:
@@ -678,7 +705,7 @@ def main():
                         st.success(f"🎯 Found {len(results)} Proximity Alerts (vs. Strategic Plan)")
                         results.sort(key=lambda x: x['Dist %'])
                         st.session_state.proximity_scan_results = results
-                        st.dataframe(pd.DataFrame(results), use_container_width=True)
+                        st.dataframe(pd.DataFrame(results), width="stretch")
     
                     else:
                         st.info(f"✅ No tickers within {scan_threshold}% of Strategic Levels ({ref_date_str}).") 
@@ -716,7 +743,7 @@ def main():
                 # Local Model Selector for Head Trader
                 ht_model = st.selectbox(
                     "Head Trader Model", 
-                    ["gemini-2.5-pro", "gemini-2.0-flash", "gemini-3.0-flash-preview", "gemini-exp-1206"], 
+                    options=["gemini-2.5-pro", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.0-flash", "gemini-exp-1206"], 
                     index=0
                 )
             

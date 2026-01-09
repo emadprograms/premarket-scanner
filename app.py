@@ -6,6 +6,14 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- GLOBAL CONFIG: TIMEZONE ---
+import pytz
+if 'market_timezone' not in st.session_state:
+    st.session_state.market_timezone = pytz.timezone('US/Eastern')
+# Deprecate old key if exists
+if 'utc_timezone' in st.session_state:
+    del st.session_state.utc_timezone
+
 st.title("🧠 Pre-Market Analyst Engine")
 st.markdown("### *Algorithmic Context & Trade Selection System*")
 

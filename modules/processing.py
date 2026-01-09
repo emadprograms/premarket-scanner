@@ -38,9 +38,14 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
         )
 
         df['timestamp'] = pd.to_datetime(df['timestamp'].astype(str).str.replace('Z', '').str.replace(' ', 'T'))
+        df['timestamp'] = pd.to_datetime(df['timestamp'].astype(str).str.replace('Z', '').str.replace(' ', 'T'))
+        
+        # FIX: Database timestamps are UTC.
+        # We must localize to UTC then CONVERT to Eastern.
         if df['timestamp'].dt.tz is None:
-            df['timestamp'] = df['timestamp'].dt.tz_localize('UTC')
+            df['timestamp'] = df['timestamp'].dt.tz_localize(pytz_timezone('UTC'))
 
+        # dt_eastern is the display time (New York)
         df['dt_eastern'] = df['timestamp'].dt.tz_convert(US_EASTERN)
         
         # Filter for Pre-Market (04:00 - 09:30 ET)
@@ -217,6 +222,25 @@ def detect_impact_levels(df):
             interval_df = future_df.loc[:recovery_time]
             highest_point = interval_df['High'].max()
             magnitude = highest_point - pivot_price
+            # FIX: DB timestamps are UTC. Simulation is ET.
+            # This block seems to be for a freshness check, not directly part of magnitude calculation.
+            # Assuming it should be placed after magnitude calculation or as a separate check.
+            # For now, placing it as a separate block as per the instruction's structure.
+            # Note: ts_obj and simulation_cutoff_dt are not defined in this scope.
+            # This code snippet is likely intended for a different part of the overall system.
+            # If ts_obj and simulation_cutoff_dt were defined, this would be a freshness check.
+            # As the instruction is to "duplicate this logic for freshness check",
+            # and the provided snippet is for timezone conversion and lag calculation,
+            # I'm inserting it as a standalone block.
+            #
+            # if ts_obj.tzinfo is None: 
+            #     utc_tz = pytz_timezone('UTC')
+            #     ts_obj = utc_tz.localize(ts_obj)
+            # 
+            # # Convert DB time to ET for comparison with Simulation Time
+            # ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+            # 
+            # lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
             
             if 'timestamp' in df.columns:
                  t1 = df.loc[idx]['timestamp']

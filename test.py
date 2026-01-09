@@ -273,7 +273,7 @@ with tab1:
             yaxis_title='Price Zones',
             template='plotly_dark'
         )
-        st.plotly_chart(fig_matrix, use_container_width=True)
+        st.plotly_chart(fig_matrix, width="stretch")
 
         # 2. CANDLESTICK CHART
         st.subheader("2. Price Action (Candlesticks)")
@@ -294,7 +294,7 @@ with tab1:
             template='plotly_dark',
             margin=dict(t=0)
         )
-        st.plotly_chart(fig_candle, use_container_width=True)
+        st.plotly_chart(fig_candle, width="stretch")
 
     with col2:
         st.subheader("Detailed Interpretation")

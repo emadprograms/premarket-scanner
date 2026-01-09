@@ -524,7 +524,7 @@ def visualize_context(df, json_data, ref_levels):
         height=700
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # ==========================================
 # Main Execution

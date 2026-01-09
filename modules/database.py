@@ -96,14 +96,14 @@ def get_eod_card_data_for_screener(client, ticker_list: list, benchmark_date: st
                 ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
             FROM company_cards WHERE date <= ?
         )
-        SELECT ticker, company_card_json FROM RankedCards
+        SELECT ticker, company_card_json, date FROM RankedCards
         WHERE rn = 1 AND ticker IN ({','.join(['?'] * len(ticker_list))})
     """
     try:
         args = [benchmark_date] + ticker_list
         rs = client.execute(query, args)
         for row in rs.rows:
-            ticker, card_json_blob = row[0], row[1]
+            ticker, card_json_blob, actual_date = row[0], row[1], row[2]
             if not card_json_blob:
                 continue
             s_levels, r_levels = _parse_levels_from_json_blob(card_json_blob, logger)
@@ -120,6 +120,7 @@ def get_eod_card_data_for_screener(client, ticker_list: list, benchmark_date: st
                 "screener_briefing_text": briefing_text,
                 "s_levels": s_levels,
                 "r_levels": r_levels,
+                "plan_date": actual_date # NEW FIELD
             }
         return db_data
     except Exception as e:

@@ -4,6 +4,11 @@ from datetime import datetime, timedelta
 
 def render_sidebar(available_models):
     with st.sidebar:
+        # Fallback Init for Subpages
+        import pytz
+        if 'market_timezone' not in st.session_state:
+             st.session_state.market_timezone = pytz.timezone('US/Eastern')
+        
         st.header("⚙️ Mission Config")
         if 'key_manager_instance' in st.session_state and st.session_state.key_manager_instance:
             st.success("✅ Key Manager: Active")
@@ -14,17 +19,23 @@ def render_sidebar(available_models):
         mode = st.radio("Operation Mode", ["Live", "Simulation"], index=0)
 
         if mode == "Live":
-            simulation_cutoff_dt = datetime.now(st.session_state.utc_timezone)
+            simulation_cutoff_dt = datetime.now(st.session_state.market_timezone)
             st.success(f"🟢 Live Mode Active")
         else:
             st.warning(f"🟠 Simulation Mode")
             sim_date = st.date_input("Simulation Date")
-            # Default time is 14:15 UTC
-            sim_time = st.time_input("Simulation Time (UTC)", value=datetime.strptime("14:15", "%H:%M").time())
-            simulation_cutoff_dt = datetime.combine(sim_date, sim_time).replace(tzinfo=st.session_state.utc_timezone)
-            st.info(f"Time Travel To: {simulation_cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')} UTC")
+            # Default time is 09:26 ET (Pre-Market)
+            sim_time = st.time_input("Simulation Time (ET)", value=datetime.strptime("09:26", "%H:%M").time(), step=120)
+            # FIX: Use localize for pytz timezones to handle DST/Offset correctly
+            naive_dt = datetime.combine(sim_date, sim_time)
+            simulation_cutoff_dt = st.session_state.market_timezone.localize(naive_dt)
+            st.info(f"Time Travel To: {simulation_cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')} ET")
 
-        simulation_cutoff_str = simulation_cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')
+        # FIX: Database stores timestamps in UTC.
+        # We must convert the ET cutoff to UTC for the SQL query string.
+        cutoff_utc = simulation_cutoff_dt.astimezone(pytz.utc)
+        simulation_cutoff_str = cutoff_utc.strftime('%Y-%m-%d %H:%M:%S')
+        
         analysis_date = sim_date if mode == "Simulation" else simulation_cutoff_dt.date()
         st.write(f"Analysis Market Date: {analysis_date}")
         st.session_state.analysis_date = analysis_date

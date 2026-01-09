@@ -16,7 +16,8 @@ def check_db_raw():
         headers = {"Authorization": f"Bearer {token}"}
         
         # Raw Pipeline Query
-        sql = "SELECT company_card_json FROM company_cards WHERE ticker = 'MSFT' ORDER BY date DESC LIMIT 1"
+        # Checking if data is stored as UTC (08:30 ET = 13:30 UTC)
+        sql = "SELECT symbol, timestamp, close FROM market_data WHERE symbol = 'SPY' AND timestamp > '2026-01-08 13:00:00' AND timestamp < '2026-01-08 15:00:00' ORDER BY timestamp ASC LIMIT 50"
         payload = {
             "requests": [
                 {"type": "execute", "stmt": {"sql": sql}},
