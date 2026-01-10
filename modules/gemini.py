@@ -18,7 +18,7 @@ AVAILABLE_MODELS = [
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # USER PROVIDED KEY - DIRECT ACCESS
-DIRECT_API_KEY = "AIzaSyDuHbqlYyui_l9Ne2r6FdNFXlFTmoCL8cI"
+DIRECT_API_KEY = "AIzaSyASCSqkreIXeuIE58JzhSZNVJWVrq0mDBE"
 
 def call_gemini_with_rotation(
     prompt: str,
@@ -31,7 +31,13 @@ def call_gemini_with_rotation(
 
     logger.log(f"🔎 DIRECT REQUEST: {model_name} (Database/KeyManager Bypassed)")
     
-    gemini_url = f"{API_BASE_URL}/{model_name}:generateContent?key={DIRECT_API_KEY}"
+    # Check for Manual Override from UI
+    current_key = DIRECT_API_KEY
+    if 'manual_api_key' in st.session_state and st.session_state.manual_api_key:
+         current_key = st.session_state.manual_api_key
+         logger.log("🔑 Using MANUAL API Key override.")
+
+    gemini_url = f"{API_BASE_URL}/{model_name}:generateContent?key={current_key}"
 
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],

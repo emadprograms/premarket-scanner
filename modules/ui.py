@@ -10,6 +10,13 @@ def render_sidebar(available_models):
              st.session_state.market_timezone = pytz.timezone('US/Eastern')
         
         st.header("⚙️ Mission Config")
+        st.caption("🟢 System Ready (v3.1 Verified)")
+        
+        # Manual Key Override
+        manual_key = st.text_input("🔑 Manual API Key", type="password", help="Enter a key to override the system default.")
+        if manual_key:
+            st.session_state.manual_api_key = manual_key
+        
         if 'key_manager_instance' in st.session_state and st.session_state.key_manager_instance:
             st.success("✅ Key Manager: Active")
         else:
