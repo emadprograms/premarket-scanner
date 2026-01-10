@@ -136,7 +136,7 @@ try:
     )
     from modules.gemini import call_gemini_with_rotation, AVAILABLE_MODELS
     from modules.ui import (
-        render_sidebar,
+        render_mission_config,
         render_main_content,
         render_proximity_scan,
         render_battle_commander,
@@ -234,7 +234,7 @@ def main():
         st.session_state.key_manager_instance = KeyManager(db_url=db_url, auth_token=auth_token)
 
     # --- Render Sidebar & Capture Config ---
-    selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str = render_sidebar(AVAILABLE_MODELS)
+    selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str = render_mission_config(AVAILABLE_MODELS)
 
     # --- STATE MANAGEMENT: RESET ON CONFIG CHANGE ---
     # MODIFIED: We remove 'selected_model' from the signature so changing the model
