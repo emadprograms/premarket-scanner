@@ -224,17 +224,19 @@ def main():
         st.stop()
 
     # --- FORCE RELOAD FOR BUGFIX (Stale Object in Session State) ---
-    if 'key_manager_v3_fix' not in st.session_state:
-        # If the object exists from a previous run (where it didn't have logger arg), delete it.
+    if 'key_manager_v8_fix' not in st.session_state:
+        # If the object exists from a previous run (where it didn't have V8 methods), delete it.
         if 'key_manager_instance' in st.session_state:
             del st.session_state['key_manager_instance']
-        st.session_state.key_manager_v3_fix = True
+        st.session_state.key_manager_v8_fix = True
 
     if 'key_manager_instance' not in st.session_state:
         st.session_state.key_manager_instance = KeyManager(db_url=db_url, auth_token=auth_token)
 
     # --- Render Sidebar & Capture Config ---
-    selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str = render_mission_config(AVAILABLE_MODELS)
+    # Generate Display Labels
+    model_labels = {k: v['display'] for k, v in KeyManager.MODELS_CONFIG.items()}
+    selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str = render_mission_config(AVAILABLE_MODELS, formatter=model_labels)
 
     # --- STATE MANAGEMENT: RESET ON CONFIG CHANGE ---
     # MODIFIED: We remove 'selected_model' from the signature so changing the model
@@ -753,8 +755,9 @@ def main():
                 # Local Model Selector for Head Trader
                 ht_model = st.selectbox(
                     "Head Trader Model", 
-                    options=["gemini-2.5-pro", "gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.0-flash", "gemini-exp-1206"], 
-                    index=0
+                    options=AVAILABLE_MODELS, 
+                    index=0,
+                    format_func=lambda x: model_labels.get(x, x)
                 )
             
             # 2. Action Buttons

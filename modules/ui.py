@@ -2,7 +2,11 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
-def render_mission_config(available_models):
+def render_mission_config(available_models, formatter=None):
+    # 1. Reserve Top Space for Status
+    status_container = st.container()
+
+    # 2. Render Config (Standard Flow)
     with st.expander("⚙️ Mission Config", expanded=True):
         # Fallback Init for Subpages
         import pytz
@@ -11,24 +15,19 @@ def render_mission_config(available_models):
         
         st.caption("🟢 System Ready (v3.1 Verified)")
         
-        # Row 1: Key, Model, Mode, Time
-        c1, c2, c3, c4 = st.columns([2, 1.5, 1, 2])
+        # Row 1: Model, Mode, Time
+        c1, c2, c3 = st.columns([2, 1, 2])
         
         with c1:
-            # Manual Key Override
-            manual_key = st.text_input("🔑 Manual API Key", type="password", help="Override Key", label_visibility="collapsed", placeholder="🔑 Manual API Key (Optional)")
-            if manual_key:
-                st.session_state.manual_api_key = manual_key
-
-        with c2:
-            selected_model = st.selectbox("AI Model", available_models, index=0, label_visibility="collapsed")
+            format_func = (lambda x: formatter.get(x, x)) if formatter else (lambda x: x)
+            selected_model = st.selectbox("AI Model", available_models, index=0, label_visibility="collapsed", format_func=format_func)
         
-        with c3:
+        with c2:
             # Toggle is cleaner than radio
             is_sim = st.toggle("Sim Mode", value=False) 
             logic_mode = "Simulation" if is_sim else "Live"
 
-        with c4:
+        with c3:
             if logic_mode == "Live":
                 simulation_cutoff_dt = datetime.now(st.session_state.market_timezone)
                 st.caption(f"🟢 **LIVE**: {simulation_cutoff_dt.strftime('%H:%M:%S')} ET")
@@ -52,20 +51,21 @@ def render_mission_config(available_models):
         analysis_date = sim_date if logic_mode == "Simulation" else simulation_cutoff_dt.date()
         st.session_state.analysis_date = analysis_date
 
-        # --- Status Line ---
-        st.divider()
+    # 3. Populate Status Container (Appears at TOP)
+    with status_container:
         s1, s2, s3 = st.columns(3)
         s1.caption(f"📅 Analysis: **{analysis_date}**")
         
         if 'key_manager_instance' in st.session_state and st.session_state.key_manager_instance:
-             s2.success("✅ Key Manager: Active")
+                s2.success("✅ Key Manager: Active")
         else:
-             s2.error("❌ Key Manager: Failed")
-             
+                s2.error("❌ Key Manager: Failed")
+                
         # Assuming if we are here, DB is connected (app.py checks it)
         s3.success("✅ Database: Connected")
+        st.divider() # Divider below status, above Config
 
-        return selected_model, logic_mode, simulation_cutoff_dt, simulation_cutoff_str
+    return selected_model, logic_mode, simulation_cutoff_dt, simulation_cutoff_str
 
 def render_main_content(mode, simulation_cutoff_dt):
     st.header("Step 1: Macro Context")
