@@ -763,8 +763,12 @@ def main():
             # 2. Action Buttons
             col_act1, col_act2 = st.columns([1, 1])
             
-            run_ai_clicked = col_act1.button("🧠 Run Head Trader", type="primary", use_container_width=True)
-            copy_prompt_clicked = col_act2.button("📋 Generate Prompt Only", type="secondary", use_container_width=True)
+            with col_act1:
+                run_ai_clicked = st.button("🧠 Run Head Trader", type="primary", use_container_width=True)
+                use_full_context = st.checkbox("📖 Use Full Card Context", value=False, help="Sends entire company card (raw JSON) instead of summary. Higher token cost.")
+            
+            with col_act2:
+                copy_prompt_clicked = st.button("📋 Generate Prompt Only", type="secondary", use_container_width=True)
 
             if run_ai_clicked or copy_prompt_clicked:
                 if not selected_tickers:
@@ -792,7 +796,7 @@ def main():
                     strategic_plans = {}
                     
                     # Safe Fetch Function (Corrected Table Schema)
-                    def fetch_plan_safe(client_obj, ticker):
+                    def fetch_plan_safe(client_obj, ticker, full_context_mode=False):
                         query = """
                             SELECT cc.company_card_json, s.historical_level_notes 
                             FROM company_cards cc
@@ -806,6 +810,10 @@ def main():
                             if rows and rows[0]:
                                 json_str, notes = rows[0][0], rows[0][1]
                                 card_data = json.loads(json_str) if json_str else {}
+                                
+                                if full_context_mode:
+                                     return card_data # Return Full JSON
+                                
                                 return {
                                     "narrative_note": card_data.get('marketNote', 'N/A'),
                                     "strategic_bias": card_data.get('basicContext', {}).get('priceTrend', 'N/A'),
@@ -824,7 +832,7 @@ def main():
                         # Standard Fetch Loop
                         for tkr in selected_tickers:
                             print(f"DEBUG: Fetching Strategic Plan for {tkr}...") 
-                            result = fetch_plan_safe(turso, tkr)
+                            result = fetch_plan_safe(turso, tkr, use_full_context)
                             
                             if isinstance(result, Exception):
                                 error_msg = str(result)
@@ -835,7 +843,7 @@ def main():
                                     fresh_url = db_url.replace("libsql://", "https://") 
                                     if not fresh_url.startswith("https://"): fresh_url = f"https://{fresh_url}"
                                     fresh_db = create_client_sync(url=fresh_url, auth_token=auth_token)
-                                    retry_res = fetch_plan_safe(fresh_db, tkr)
+                                    retry_res = fetch_plan_safe(fresh_db, tkr, use_full_context)
                                     fresh_db.close()
                                     if isinstance(retry_res, Exception): raise retry_res 
                                     else: strategic_plans[tkr] = retry_res 
