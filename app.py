@@ -427,6 +427,7 @@ try:
         render_proximity_scan,
         render_battle_commander,
     )
+    from modules.sync_engine import sync_turso_to_local
 except ImportError as e:
     st.error(f"❌ CRITICAL MISSING FILE: {e}")
     st.stop()
@@ -508,7 +509,6 @@ def main():
     # Handle Sync Trigger before connecting (need fresh connection for sync)
     if st.session_state.trigger_sync:
         with st.status("📥 Syncing Database...", expanded=True) as status:
-            from modules.sync_engine import sync_turso_to_local
             temp_conn = get_db_connection(db_url, auth_token, local_mode=False)
             if temp_conn:
                 success = sync_turso_to_local(temp_conn, "local_cache.db", startup_logger)
@@ -906,7 +906,6 @@ def main():
                         df = None
 
                         # 1. FETCH DATA (ROUTED: LIVE OR DB)
-                        from modules.processing import get_session_bars_routed
                         df = get_session_bars_routed(turso, epic, benchmark_date_str, simulation_cutoff_str, mode, logger)
                         
                         # 2. EXTRACT PRICE & TS FROM DF (Avoid separate DB lookup for Live mode)
