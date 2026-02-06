@@ -309,10 +309,14 @@ class KeyManager:
             # 1. STRICT TIER 
             key_metadata = self.key_metadata.get(key_val, {})
             key_tier = key_metadata.get('tier', 'free')
+            
+            # Paid models require Paid keys
             if required_tier == 'paid' and key_tier != 'paid':
                 rotation.append(key_val)
                 continue
-            if required_tier == 'free' and key_tier != 'free':
+            
+            # Free models can use Free OR Paid keys (Fallback)
+            if required_tier == 'free' and key_tier not in ['free', 'paid']:
                 rotation.append(key_val)
                 continue
             

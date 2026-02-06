@@ -6,12 +6,12 @@ from modules.key_manager import KeyManager
 from modules.utils import AppLogger
 
 AVAILABLE_MODELS = [
+    "gemini-3-flash-free",
     "gemini-3-pro-paid",
     "gemini-3-flash-paid",
     "gemini-2.5-pro-paid",
     "gemini-2.5-flash-paid",
     "gemini-2.5-flash-lite-paid",
-    "gemini-3-flash-free",
     "gemini-2.5-flash-free",
     "gemini-2.5-flash-lite-free",
     "gemma-3-27b",
@@ -20,7 +20,9 @@ AVAILABLE_MODELS = [
 API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # USER PROVIDED KEY - DIRECT ACCESS
-DIRECT_API_KEY = "AIzaSyASCSqkreIXeuIE58JzhSZNVJWVrq0mDBE"
+# USER PROVIDED KEY - DIRECT ACCESS
+DIRECT_API_KEY = None # Hardcoded key removed. Use KeyManager.
+
 
 def call_gemini_with_rotation(
     prompt: str,

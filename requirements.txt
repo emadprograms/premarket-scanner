@@ -5,3 +5,9 @@ requests
 libsql-client
 yfinance
 plotly
+streamlit-lightweight-charts
+infisical-python>=2.0.0
+toml
+matplotlib
+python-dotenv
+pytz

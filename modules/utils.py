@@ -28,8 +28,22 @@ class AppLogger:
         if self.container:
             self.container.markdown("\n\n".join(self.log_messages[::-1]), unsafe_allow_html=True)
 
+from modules.infisical_manager import InfisicalManager
+
 def get_turso_credentials():
     try:
+        # 1. Attempt Infisical Logic
+        mgr = InfisicalManager()
+        if mgr.is_connected:
+            db_url = mgr.get_secret("turso_emadarshadalam_newsdatabase_DB_URL")
+            auth_token = mgr.get_secret("turso_emadarshadalam_newsdatabase_AUTH_TOKEN")
+            
+            if db_url and auth_token:
+                # Ensure HTTPS
+                return db_url.replace("libsql://", "https://"), auth_token
+        
+        # 2. Fallback to Local Secrets (Legacy)
+        # Useful if Infisical fails to connect but secrets.toml still has [turso] (during transition)
         turso_secrets = st.secrets.get("turso", {})
         raw_db_url = turso_secrets.get("db_url")
         auth_token = turso_secrets.get("auth_token")
@@ -37,8 +51,8 @@ def get_turso_credentials():
         if raw_db_url:
             db_url_https = raw_db_url.replace("libsql://", "https://")
             return db_url_https, auth_token
-        else:
-            return None, None
+            
+        return None, None
     except Exception as e:
         st.error(f"❌ Critical Initialization Error: {e}")
         return None, None

@@ -6,6 +6,10 @@ import re
 from datetime import datetime, timezone, timedelta
 from pytz import timezone as pytz_timezone
 import plotly.graph_objects as go
+import yfinance as yf
+from streamlit_lightweight_charts import renderLightweightCharts
+import pandas as pd
+import io
 
 st.set_page_config(
     page_title="Context Engine",
@@ -20,20 +24,18 @@ if 'market_timezone' not in st.session_state:
 # ==============================================================================
 # HELPER: VISUALIZE STRUCTURE FOR USER
 # ==============================================================================
-def render_market_structure_chart(card_data):
+# ==============================================================================
+# HELPER: VISUALIZE STRUCTURE (PLOTLY - INTERACTIVE)
+# ==============================================================================
+def render_market_structure_chart(card_data, trade_plan=None):
     """
-    Visualizes the raw JSON data sent to the AI:
-    - X-Axis: 30m Time Blocks
-    - Y-Axis: Price (Block Range)
-    - Elements: Range Bars (High/Low), POC Dots (Migration), Key Levels (Support/Resistance)
+    Visualizes the raw JSON data sent to the AI (30m Blocks):
     """
     try:
         if isinstance(card_data, str):
             card_data = json.loads(card_data)
         
         ticker = card_data.get('meta', {}).get('ticker', 'Unknown')
-        
-        # 1. Extract Block Data
         blocks = card_data.get('value_migration_log', [])
         if not blocks: return None
         
@@ -52,55 +54,336 @@ def render_market_structure_chart(card_data):
             hover_attrs = [f"{k}: {v}" for k,v in obs.items() if k != 'price_action_nature']
             hover_texts.append("<br>".join(hover_attrs))
 
-        # 2. Build Plot
         fig = go.Figure()
         
-        # Range Bars (Candle-like)
+        # Range Bars
         fig.add_trace(go.Bar(
-            x=x_vals, 
-            y=[h-l for h,l in zip(highs, lows)],
-            base=lows,
-            marker_color='rgba(100, 149, 237, 0.6)',
-            name='Block Range',
-            hoverinfo='skip'
+            x=x_vals, y=[h-l for h,l in zip(highs, lows)], base=lows,
+            marker_color='rgba(100, 149, 237, 0.6)', name='Block Range', hoverinfo='skip'
         ))
         
-        # POC Migration Path
+        # POCs
         fig.add_trace(go.Scatter(
-            x=x_vals, 
-            y=pocs,
-            mode='lines+markers',
-            marker=dict(size=8, color='#00CC96'),
-            line=dict(color='#00CC96', width=2),
-            name='Value Migration (POC)',
-            text=hover_texts,
-            hoverinfo='text+y'
+            x=x_vals, y=pocs, mode='lines+markers',
+            marker=dict(size=8, color='#00CC96'), line=dict(color='#00CC96', width=2),
+            name='POC Migration', text=hover_texts
         ))
         
-        # 3. Add Key Levels
+        # Key Levels
         rejections = card_data.get('key_level_rejections', [])
         for r in rejections:
             color = '#FF4136' if r['type'] == 'RESISTANCE' else '#0074D9'
-            fig.add_hline(
-                y=r['level'], 
-                line_dash="dot", 
-                line_color=color,
-                annotation_text=f"{r['type']} ({r['strength_score']})", 
-                annotation_position="top right"
-            )
+            fig.add_hline(y=r['level'], line_dash="dot", line_color=color, annotation_text=r['type'])
 
         fig.update_layout(
-            title=f"AI Data Visualizer: {ticker}",
-            height=300,
-            margin=dict(l=20, r=20, t=40, b=20),
-            xaxis_title="Time Blocks",
-            yaxis_title="Price",
-            template="plotly_dark",
-            showlegend=True
+            title=f"{ticker} Market Structure (30m Blocks)", height=400, template="plotly_dark",
+            margin=dict(l=20, r=20, t=40, b=20)
         )
         return fig
-    except Exception as e:
+    except Exception:
         return None
+
+# ==============================================================================
+# HELPER: HEAD TRADER VISUALIZER (MATPLOTLIB - 1M CANDLES)
+# ==============================================================================
+# ==============================================================================
+# HELPER: HEAD TRADER VISUALIZER (TRADINGVIEW LIGHTWEIGHT CHARTS)
+# ==============================================================================
+# ==============================================================================
+# HELPER: HEAD TRADER VISUALIZER (TRADINGVIEW LIGHTWEIGHT CHARTS)
+# ==============================================================================
+def render_tradingview_chart(client, ticker, cutoff_str, mode="Simulation", trade_plan=None):
+    """
+    Renders an interactive TradingView-style chart using Turso DB OR Capital.com.
+    """
+    try:
+        # 1. Fetch Data (Routed based on mode)
+        df = get_historical_bars_for_chart(client, ticker, cutoff_str, days=5, mode=mode)
+        
+        if df is None or df.empty: 
+            return None
+        
+        # Filter Visual (Last 150 candles)
+        df = df.tail(150)
+        
+        # 2. Format Candle Data
+        candles = []
+        for _, row in df.iterrows():
+            # Unix Timestamp
+            ts = int(row['timestamp'].timestamp())
+            candles.append({
+                "time": ts,
+                "open": row['open'],
+                "high": row['high'],
+                "low": row['low'],
+                "close": row['close']
+            })
+
+        # 3. Setup Series List
+        series = []
+        
+        # Main Candle Series
+        series.append({
+            "type": "Candlestick",
+            "data": candles,
+            "options": {
+                "upColor": "#26a69a",
+                "downColor": "#ef5350",
+                "borderVisible": False,
+                "wickUpColor": "#26a69a",
+                "wickDownColor": "#ef5350"
+            }
+        })
+        
+        # 4. Trade Plan Overlays
+        if trade_plan:
+            try:
+                # Normalize
+                plan_norm = {k.lower(): v for k,v in trade_plan.items()}
+                
+                def safe_float(val):
+                    if isinstance(val, (int, float)): return float(val)
+                    if isinstance(val, str): return float(val.replace('$','').replace(',','').strip())
+                    return None
+
+                entry = safe_float(plan_norm.get('entry'))
+                stop = safe_float(plan_norm.get('stop'))
+                target = safe_float(plan_norm.get('target'))
+                
+                # Create Line Data (Constant value across all timestamps)
+                # This draws a horizontal line across the whole visible chart
+                
+                if entry:
+                    series.append({
+                        "type": "Line",
+                        "data": [{"time": c["time"], "value": entry} for c in candles],
+                        "options": {
+                            "color": "#FFEB3B", # Yellow
+                            "lineWidth": 2,
+                            "lineStyle": 2, # Dashed
+                            "priceLineVisible": False,
+                            "lastValueVisible": False,
+                            "title": "ENTRY"
+                        }
+                    })
+                
+                if stop:
+                    series.append({
+                        "type": "Line",
+                        "data": [{"time": c["time"], "value": stop} for c in candles],
+                        "options": {
+                            "color": "#FF1744", # Red
+                            "lineWidth": 2,
+                            "priceLineVisible": False,
+                            "lastValueVisible": False,
+                            "title": "STOP"
+                        }
+                    })
+                    
+                if target:
+                    series.append({
+                        "type": "Line",
+                        "data": [{"time": c["time"], "value": target} for c in candles],
+                        "options": {
+                            "color": "#00E676", # Green
+                            "lineWidth": 2,
+                            "priceLineVisible": False,
+                            "lastValueVisible": False,
+                            "title": "TARGET"
+                        }
+                    })
+
+                # PROJECTED PATH (Current -> Entry -> Target)
+                if entry and target:
+                    last_c = candles[-1]
+                    last_ts = last_c['time']
+                    curr_price = last_c['close']
+                    
+                    # Future Timestamps (Widened for visual tilt - 60m / 180m)
+                    ts_entry = last_ts + (60 * 60)   # +1 Hour
+                    ts_target = last_ts + (180 * 60) # +3 Hours
+                    
+                    # 1. Approach: Current -> Entry (Dotted)
+                    series.append({
+                        "type": "Line",
+                        "data": [
+                            {"time": last_ts, "value": curr_price},
+                            {"time": ts_entry, "value": entry}
+                        ],
+                        "options": {
+                            "color": "cyan",
+                            "lineWidth": 2,
+                            "lineStyle": 2, # Dashed/Dotted
+                            "title": "",
+                            "crosshairMarkerVisible": False,
+                            "priceLineVisible": False,
+                            "lastValueVisible": False
+                        },
+                        "markers": [{
+                            "time": ts_entry,
+                            "position": "aboveBar" if entry < curr_price else "belowBar",
+                            "color": "cyan",
+                            "shape": "arrowDown" if entry < curr_price else "arrowUp",
+                            "size": 2 # BIGGER ARROW
+                        }]
+                    })
+                    
+                    # 2. Execution: Entry -> Target (Solid)
+                    series.append({
+                        "type": "Line",
+                        "data": [
+                            {"time": ts_entry, "value": entry},
+                            {"time": ts_target, "value": target}
+                        ],
+                        "options": {
+                            "color": "cyan",
+                            "lineWidth": 2,
+                            "lineStyle": 0, # Solid
+                            "title": "",
+                            "crosshairMarkerVisible": False,
+                            "priceLineVisible": False,
+                            "lastValueVisible": False
+                        },
+                        "markers": [{
+                            "time": ts_target,
+                            "position": "aboveBar" if target < entry else "belowBar",
+                            "color": "cyan",
+                            "shape": "arrowDown" if target < entry else "arrowUp",
+                            "size": 2 # BIGGER ARROW
+                        }]
+                    })
+
+            except Exception as e:
+                print(f"Overlay Error: {e}")
+
+        # 5. Chart Options
+        chartOptions = {
+            "layout": {
+                "textColor": "#d1d4dc",
+                "background": {
+                    "type": "solid",
+                    "color": "#0E1117"
+                }
+            },
+            "grid": {
+                "vertLines": {"color": "rgba(42, 46, 57, 0.5)"},
+                "horzLines": {"color": "rgba(42, 46, 57, 0.5)"}
+            },
+            "height": 500,
+            "rightPriceScale": {
+                "scaleMargins": {
+                    "top": 0.1,
+                    "bottom": 0.1,
+                },
+                "borderColor": "rgba(197, 203, 206, 0.8)",
+            },
+            "timeScale": {
+                "borderColor": "rgba(197, 203, 206, 0.8)",
+                "timeVisible": True,
+                "secondsVisible": False
+            }
+        }
+        
+        # 6. Render
+        st.subheader(f"📊 {ticker} (5m Interactive)")
+        renderLightweightCharts([
+            {
+                "chart": chartOptions,
+                "series": series
+            }
+        ], key=f"ht_chart_{ticker}")
+        return True
+
+    except Exception as e:
+        st.error(f"Chart Error ({ticker}): {e}")
+        return None
+
+def render_lightweight_chart_simple(df, ticker, height=300):
+    """
+    Renders a simple interactive candlestick chart from a DataFrame.
+    """
+    try:
+        if df is None or df.empty: 
+            st.warning(f"No Data for {ticker}")
+            return
+
+        # DEBUG: Verify Data Availability
+        # st.caption(f"Debug: {len(df)} rows found. Columns: {list(df.columns)}")
+
+        # Normalize Columns to Lowercase for processing
+        df_norm = df.copy()
+        df_norm.columns = [c.lower() for c in df_norm.columns]
+        
+        # Ensure timestamp exists
+        if 'timestamp' not in df_norm.columns:
+             # Try index
+             if isinstance(df.index, pd.DatetimeIndex):
+                  df_norm['timestamp'] = df.index
+             else:
+                  # If we can't find time, we can't chart
+                  st.warning(f"No timestamp column for {ticker}")
+                  return
+
+        # CRITICAL FIX: Sort and Dedup for Lightweight Charts (Likely cause of blank charts)
+        df_norm['timestamp'] = pd.to_datetime(df_norm['timestamp'])
+        df_norm.dropna(subset=['timestamp', 'open', 'high', 'low', 'close'], inplace=True)
+        df_norm.sort_values('timestamp', inplace=True)
+        df_norm.drop_duplicates(subset='timestamp', keep='last', inplace=True)
+        
+        if df_norm.empty:
+            st.warning(f"No valid data points for {ticker}")
+            return
+
+        # Format Data
+        candles = []
+        for _, row in df_norm.iterrows():
+            # Handle Timestamp (Explicit cast to int seconds)
+            ts = int(row['timestamp'].timestamp())
+            
+            # Skip invalid values
+            if pd.isna(row['open']): continue
+
+            candles.append({
+                "time": ts,
+                "open": row.get('open', 0),
+                "high": row.get('high', 0),
+                "low": row.get('low', 0),
+                "close": row.get('close', 0)
+            })
+
+        series = [{
+            "type": "Candlestick",
+            "data": candles,
+            "options": {
+                "upColor": "#26a69a",
+                "downColor": "#ef5350",
+                "borderVisible": False,
+                "wickUpColor": "#26a69a",
+                "wickDownColor": "#ef5350"
+            }
+        }]
+
+        chart_options = {
+            "layout": {
+                "textColor": "#d1d4dc",
+                "background": {"type": "solid", "color": "#131722"}
+            },
+            "grid": {
+                "vertLines": {"color": "rgba(42, 46, 57, 0.5)"},
+                "horzLines": {"color": "rgba(42, 46, 57, 0.5)"}
+            },
+            "height": height,
+            "timeScale": { "timeVisible": True, "secondsVisible": False }
+        }
+        
+        # Sanitize key for Streamlit (Stable key prevents blank-out on rerun)
+        safe_ticker = ticker.replace("=", "_").replace("^", "").replace(".", "_")
+        
+        # 6. Render
+        renderLightweightCharts([{"chart": chart_options, "series": series}], key=f"lc_{safe_ticker}")
+        
+    except Exception as e:
+        st.error(f"Chart Render Error ({ticker}): {e}")
 
 # ==============================================================================
 # CONFIGURATION
@@ -131,8 +414,11 @@ try:
     from modules.processing import (
         get_latest_price_details,
         get_session_bars_from_db,
+        get_session_bars_routed,
         analyze_market_context,      
-        get_previous_session_stats   
+        get_previous_session_stats,
+        get_historical_bars_for_chart,
+        ticker_to_epic
     )
     from modules.gemini import call_gemini_with_rotation, AVAILABLE_MODELS
     from modules.ui import (
@@ -313,52 +599,84 @@ def main():
                 status.write("2. Scanning Core Indices (Structure)...")
                 benchmark_date_str = st.session_state.analysis_date.isoformat()
                 
+                # PRE-FLIGHT CHECK: Live Mode Authentication
+                if mode == "Live":
+                    from modules.capital_api import create_capital_session_v2
+                    cst, xst = create_capital_session_v2()
+                    if not cst or not xst:
+                        status.update(label="Auth Failed", state="error")
+                        st.error("❌ Capital.com Authentication Failed. Check Infisical Secrets (`capital_com_X_CAP_API_KEY`, `capital_com_IDENTIFIER`, `capital_com_PASSWORD`).")
+                        st.stop()
+
                 progress_bar = st.progress(0)
                 for idx, epic in enumerate(CORE_INTERMARKET_TICKERS):
-                    latest_price, price_ts = get_latest_price_details(turso, epic, simulation_cutoff_str, logger)
-                    print(f"DEBUG: Step 1 Scan | {epic} | Price: {latest_price} | Cutoff: {simulation_cutoff_str}") # DEBUG LOG
-                    if latest_price:
-                         df = get_session_bars_from_db(turso, epic, benchmark_date_str, simulation_cutoff_str, logger)
-                         ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
-                         if df is not None and not df.empty:
-                            card = analyze_market_context(df, ref_levels, ticker=epic)
-                            st.session_state.macro_etf_structures.append(json.dumps(card))
-                            
-                            mig_count = len(card.get('value_migration_log', []))
-                            imp_count = len(card.get('key_level_rejections', []))
-                            freshness = 0.0
-                            try:
-                                if price_ts:
-                                    ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
-                                    ts_obj = datetime.fromisoformat(ts_clean)
-                                    # FIX: DB timestamps are UTC. Simulation is ET.
-                                    if ts_obj.tzinfo is None: 
-                                        utc_tz = pytz_timezone('UTC')
-                                        ts_obj = utc_tz.localize(ts_obj)
-                                    
-                                    # Convert to ET for comparison
-                                    ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                                    
-                                    lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
-                                    freshness = max(0.0, 1.0 - (lag_minutes / 60.0))
-                            except: pass
+                    # Rate Limit Protection for API (10 req/sec max, safer to pace it)
+                    time.sleep(0.3)
+                    
+                    epic_cap = ticker_to_epic(epic, client=turso) if mode == "Live" else epic
 
-                            st.session_state.macro_index_data.append({
-                                "Ticker": epic,
-                                "Price": f"${latest_price:.2f}",
-                                "Freshness": freshness,
-                                "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
-                                "DB Time": str(price_ts) if price_ts else "N/A",       # DEBUG
-                                "Migration Steps": mig_count,
-                                "Impact Zones": imp_count
-                            })
+                    # ROUTED DATA FETCH (Live/Sim) - Force Reload (v2)
+                    df = get_session_bars_routed(turso, epic, benchmark_date_str, simulation_cutoff_str, mode=mode, logger=logger)
+                    
+                    if df is not None and not df.empty:
+                         latest_price = df.iloc[-1]['Close']
+                         price_ts = df.iloc[-1]['timestamp']
+                         
+                         # Get Previous Close Reference (Usually from DB, safe fallback)
+                         ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
+                         
+                         card = analyze_market_context(df, ref_levels, ticker=epic)
+                         st.session_state.macro_etf_structures.append(json.dumps(card))
+                            
+                         mig_count = len(card.get('value_migration_log', []))
+                         imp_count = len(card.get('key_level_rejections', []))
+                         freshness = 0.0
+                         try:
+                             if price_ts:
+                                 ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
+                                 ts_obj = datetime.fromisoformat(ts_clean)
+                                 # FIX: DB timestamps are UTC. Simulation is ET.
+                                 if ts_obj.tzinfo is None: 
+                                     utc_tz = pytz_timezone('UTC')
+                                     ts_obj = utc_tz.localize(ts_obj)
+                                 
+                                 # Convert to ET for comparison
+                                 ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                                 
+                                 lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                                 freshness = max(0.0, 1.0 - (lag_minutes / 60.0))
+                         except: pass
+
+                         st.session_state.macro_index_data.append({
+                             "Ticker": epic,
+                             "Epic": epic_cap if mode == "Live" else "DB",
+                             "Price": f"${latest_price:.2f}",
+                             "Freshness": freshness,
+                             "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
+                             "DB Time": str(price_ts) if price_ts else "N/A",       # DEBUG
+                             "Migration Steps": mig_count,
+                             "Impact Zones": imp_count
+                         })
+                         
+                         # VISUAL VERIFICATION (User Request - Interactive)
+                         with st.expander(f"📊 {epic} ({epic_cap if mode == 'Live' else 'DB'}) Live Data ({len(df)} bars)", expanded=(idx == 0)):
+                                render_lightweight_chart_simple(df, epic, height=250)
+                                st.caption(f"Latest: {latest_price} | Source: {'Capital.com' if mode == 'Live' else 'DB'} | Epic: {epic_cap}")
+                    else:
+                         # FAILURE UI (Explicit Visibility)
+                         with st.expander(f"⚠️ {epic} ({epic_cap if mode == 'Live' else 'DB'}) - No Data", expanded=False):
+                             st.warning(f"Could not fetch data for {epic} (Epic: {epic_cap}). Check Mapping or Rate Limits.")
+                             st.caption("Common reasons: Closed Market, Invalid Symbol, or 10 req/sec limit exceeded.")
                     progress_bar.progress((idx + 1) / len(CORE_INTERMARKET_TICKERS))
                 progress_bar.empty()
 
                 # CRITICAL CHECK: PREVENT EMPTY API CALLS
                 if not st.session_state.macro_etf_structures:
-                    status.update(label="Aborted: No DB Data", state="error")
-                    st.error("❌ No Market Data found in DB (Core Indices). Aborting AI Call to save credits.")
+                    status.update(label="Aborted: No Data", state="error")
+                    if mode == "Live":
+                         st.error("❌ No Data received from Capital.com. Check Market Hours or Symbol Mapping.")
+                    else:
+                         st.error("❌ No Market Data found in DB (Core Indices). Aborting AI Call to save credits.")
                     st.stop()
 
                 # --- C. BUILD & SHOW PROMPT ---
@@ -473,7 +791,7 @@ def main():
                     for s in structures:
                         fig = render_market_structure_chart(s)
                         if fig:
-                            st.plotly_chart(fig, width="stretch")
+                            st.plotly_chart(fig, use_container_width=True)
                         else:
                             # Fallback if chart fails (e.g. malformed data)
                             st.text(str(s)[:200] + "...") 
@@ -616,7 +934,7 @@ def main():
                     card_data = st.session_state.glassbox_raw_cards[tkr]
                     fig = render_market_structure_chart(card_data)
                     if fig:
-                        st.plotly_chart(fig, width="stretch")
+                        st.plotly_chart(fig, use_container_width=True)
                     else:
                         st.warning(f"No chart data for {tkr}")
                     st.divider()
@@ -732,45 +1050,61 @@ def main():
         if not st.session_state.glassbox_raw_cards:
             st.info("ℹ️ run 'Context Engine (Step 1)' first to generate market data for ranking.")
         else:
-            # 1. Selection
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                available_tickers = sorted(list(st.session_state.glassbox_raw_cards.keys()))
-                
-                # AUTO-SELECT: Use Proximity Scan Results if available
-                default_tickers = available_tickers[:3] if len(available_tickers) >= 3 else available_tickers
-                if st.session_state.proximity_scan_results:
-                    prox_tickers = [x['Ticker'] for x in st.session_state.proximity_scan_results]
-                    # Only keep those that actually have data (Step 1 ran for them)
-                    valid_prox = [t for t in prox_tickers if t in available_tickers]
-                    if valid_prox:
-                        default_tickers = valid_prox
+            # 1. Prepare Data for Form
+            available_tickers = sorted(list(st.session_state.glassbox_raw_cards.keys()))
+            
+            # AUTO-SELECT: Use Proximity Scan Results if available
+            default_tickers = available_tickers[:3] if len(available_tickers) >= 3 else available_tickers
+            if st.session_state.proximity_scan_results:
+                prox_tickers = [x['Ticker'] for x in st.session_state.proximity_scan_results]
+                valid_prox = [t for t in prox_tickers if t in available_tickers]
+                if valid_prox:
+                    default_tickers = valid_prox
 
+            # 2. Head Trader Control Panel (Form)
+            with st.form(key='head_trader_controls'):
+                st.markdown("### 🎛️ Strategic Parameters")
+                
+                # Top: Selection
                 selected_tickers = st.multiselect(
-                    "Select Tickers for Head Trader Analysis", 
+                    "Select Tickers", 
                     options=available_tickers,
                     default=default_tickers
                 )
-            with col2:
-                # Local Model Selector for Head Trader
-                ht_model = st.selectbox(
-                    "Head Trader Model", 
-                    options=AVAILABLE_MODELS, 
-                    index=0,
-                    format_func=lambda x: model_labels.get(x, x)
-                )
-            
-            # 2. Action Buttons
-            col_act1, col_act2 = st.columns([1, 1])
-            
-            with col_act1:
-                run_ai_clicked = st.button("🧠 Run Head Trader", type="primary", use_container_width=True)
-                use_full_context = st.checkbox("📖 Use Full Card Context", value=False, help="Sends entire company card (raw JSON) instead of summary. Higher token cost.")
-            
-            with col_act2:
-                copy_prompt_clicked = st.button("📋 Generate Prompt Only", type="secondary", use_container_width=True)
+                
+                # Middle: Ranking Factors
+                p1, p2 = st.columns(2)
+                with p1:
+                    setup_type = st.selectbox("🎯 Setup Type", ["Any", "Gap & Go", "Reversal/Fade", "Breakout", "Dip Buy", "Range Bound"])
+                with p2:
+                    confluence_mode = st.selectbox("🏗️ Confluence", ["Flexible", "Strict"])
 
-            if run_ai_clicked or copy_prompt_clicked:
+                st.divider()
+                
+                # Layout: Left = Model, Right = Controls (2x2)
+                layout_c1, layout_c2 = st.columns([1, 1])
+                
+                with layout_c1:
+                    ht_model = st.selectbox(
+                        "Head Trader Model", 
+                        options=AVAILABLE_MODELS, 
+                        index=0,
+                        format_func=lambda x: model_labels.get(x, x)
+                    )
+
+                with layout_c2:
+                    # 2x2 Grid for Checkboxes
+                    cb_c1, cb_c2 = st.columns(2)
+                    with cb_c1:
+                        prioritize_prox = st.checkbox("Prioritize Proximity", value=False, help="Rank stocks closest to Entry #1.")
+                        use_full_context = st.checkbox("📖 Use Full Context", value=False, help="Sends raw JSON (High Token Cost)")
+                    with cb_c2:
+                        prioritize_rr = st.checkbox("Prioritize High R/R", value=False, help="Rank High Risk/Reward Ratios #1.")
+                        dry_run_mode = st.checkbox("📋 Dry Run (Prompt Only)", value=False)
+                
+                submitted = st.form_submit_button("🧠 Run Head Trader Analysis", type="primary", use_container_width=True)
+
+            if submitted:
                 if not selected_tickers:
                     st.error("Select at least one ticker.")
                 else:
@@ -922,33 +1256,54 @@ def main():
                     prompt_part_2_full = "\n".join(p2_chunks)
 
                     # PART 3: TASK & OUTPUT
+                    
+                    # Logic for overrides
+                    rr_instruction = ""
+                    if prioritize_rr:
+                        rr_instruction = "\n                    - **OVERRIDE: HIGH R/R**: YES. Rank opportunities with the best Risk/Reward ratio #1. Penalize low R/R."
+                    
+                    prox_instruction = ""
+                    if prioritize_prox:
+                        prox_instruction = "\n                    - **OVERRIDE: PROXIMITY**: YES. Prioritize stocks CLOSEST to the Entry level. We need immediate fills."
+
                     prompt_part_3 = f"""
                     [TASK]
-                    Rank ALL tickers provided in previous batches from BEST to WORST based on the **3-Layer Validation Model**.
+                    Rank the CANDIDATES from BEST to WORST.
+                    Return ONLY the **TOP 5** setups that match the following criteria.
+                    
+                    **TRADING PARAMETERS**:
+                    - **Target Setup**: {setup_type}
+                    - **Confluence Filter**: {confluence_mode}{rr_instruction}{prox_instruction}
+                    - **MANDATORY MINIMUM R/R**: 1.5:1. (CRITICAL: If Potential Reward is not at least 1.5x the Risk, DISCARD THE SETUP. It is not tradable.)
                     
                     **CRITICAL PHILOSOPHY**:
-                    - **Efficient Markets**: The news is priced in. Do not chase headlines.
+                    - **NO STATIC PREDICTIONS**: Markets are dynamic. Do not say "It will go up". Say "IF it holds X, THEN it goes up".
+                    - **SCENARIO BASED**: You must define specific TRIGGER CONDITIONS. If these triggers are not hit, the trade is invalid.
                     - **The Edge**: We trade the **PARTICIPATION GAP** (the dislocation between the Pre-Market Move and the Open).
                     - *Ideal Setup*: A ticker has reacted to news, moved to a Strategic Support Level, and is now waiting for the Open to reverse.
 
                     **CONSTRAINTS**:
                     - **NO EXTERNAL DATA**: You must NOT browse the internet or use outside knowledge. Rank these tickers SOLELY based on the "STRATEGIC_PLAN" and "TACTICAL_REALITY" provided in the input.
-
-                    **RANKING CRITERIA**:
+                    - **OUTPUT FORMAT**: RAW JSON LIST ONLY. Just the JSON array.
                     
-                    1. **Macro Alignment**: Does the ticker's direction/sector match the Global Macro Context? (e.g. If Macro says "Tech Weakness", a Long Tech setup is DANGEROUS).
-                    2. **Structural Confluence**: Do the "Impact Zones" found in Pre-Market MATCH the "Planned Support/Resistance" in the Strategic Plan? 
-                       - *High Rank*: Pre-Market rejected exactly at Planned Support (Confirmed Level).
-                       - *Low Rank*: Pre-Market structure is random or far from Planned Levels.
-                    3. **Narrative Consistency**: Does the price action confirm the `narrative_note`? (e.g. If note says "Flagging for Breakout", is it breaking out? If note says "Overextended", is it reversing?)
-                    
-                    [OUTPUT FORMAT]
-                    Provide a standard "Head Trader Brief":
-                    1. **Rank #1 (Top Pick)**: Ticker | Direction.
-                       - *Why?*: Explicitly cite the Macro Match + Level Confluence. "Pre-Market confirms Strategic Support at $XYZ."
-                       - *Plan*: Entry, Stop, Target.
-                    2. **Rank #2**: ...
-                    3. ...
+                    [JSON OUTPUT SCHEMA]
+                    [
+                        {{
+                            "rank": 1,
+                            "ticker": "XYZ",
+                            "direction": "LONG/SHORT",
+                            "setup_type": "Gap & Go",
+                            "rationale": "Concise summary of the thesis.",
+                            "trigger_condition": "IF price [ACTION] [LEVEL], THEN [EXPECTATION]. (e.g. IF price holds $150, THEN Long)",
+                            "invalidation_logic": "Setup is INVALID IF [CONDITION]. (e.g. IF price closes below $149)",
+                            "plan": {{
+                                "entry": 150.50,
+                                "stop": 149.80,
+                                "target": 152.00
+                            }}
+                        }},
+                        ...
+                    ]
                     """
 
                     # Combine for AI
@@ -966,19 +1321,72 @@ def main():
                     # ------------------------------------------------------------------
                     # EXECUTION (Only if 'Run' clicked)
                     # ------------------------------------------------------------------
-                    if run_ai_clicked:
+                    # ------------------------------------------------------------------
+                    # EXECUTION (Only if NOT Dry Run)
+                    # ------------------------------------------------------------------
+                    if not dry_run_mode:
+                        log_expander = st.expander("📝 Live Execution Logs", expanded=True)
+                        ht_logger = AppLogger(log_expander.empty())
+                        
                         with st.spinner(f"Head Trader ({ht_model}) is analyzing Market Structure..."):
                             ht_response, err = call_gemini_with_rotation(
                                 head_trader_prompt, 
                                 "You are a Head Trader.", 
-                                logger, 
+                                ht_logger, 
                                 ht_model, 
                                 st.session_state.key_manager_instance
                             )
                             
                             if ht_response:
-                                st.markdown("### 🏆 Head Trader's Ranking")
-                                st.markdown(ht_response)
+                                try:
+                                    # 1. Attempt to parse JSON
+                                    json_str = ht_response
+                                    # Greedy Search for the outer-most list
+                                    match = re.search(r"(\[[\s\S]*\])", ht_response)
+                                    if match:
+                                        json_str = match.group(1)
+                                    
+                                    recommendations = json.loads(json_str)
+                                    
+                                    st.markdown("### 🏆 Head Trader's Top 5")
+                                    
+                                    for item in recommendations:
+                                        tkr = item.get('ticker')
+                                        rank = item.get('rank')
+                                        direction = item.get('direction', 'Unknown')
+                                        rationale = item.get('rationale', 'N/A')
+                                        plan = item.get('plan', {})
+                                        
+                                        trigger = item.get('trigger_condition', 'N/A')
+                                        invalid = item.get('invalidation_logic', 'N/A')
+                                        
+                                        with st.container():
+                                            st.subheader(f"#{rank} {tkr} ({direction})")
+                                            
+                                            # Scenario Logic Display
+                                            st.info(f"✅ **TRIGGER:** {trigger}")
+                                            if invalid != 'N/A':
+                                                st.caption(f"❌ **INVALIDATION:** {invalid}")
+                                                
+                                            st.write(f"**Rationale:** {rationale}")
+                                            
+                                            # Plan Details
+                                            c1, c2, c3 = st.columns(3)
+                                            c1.metric("Entry", plan.get('entry', 'N/A'))
+                                            c2.metric("Stop", plan.get('stop', 'N/A'))
+                                            c3.metric("Target", plan.get('target', 'N/A'))
+                                            
+                                            # Chart Overlay
+                                            # Interactive TradingView Chart (Routed)
+                                            render_tradingview_chart(turso, tkr, simulation_cutoff_str, mode=mode, trade_plan=plan)
+                                            st.divider()
+
+                                except json.JSONDecodeError:
+                                    st.warning("⚠️ AI Output was not valid JSON. Showing raw text instead.")
+                                    st.markdown(ht_response)
+                                except Exception as e:
+                                    st.error(f"Error displaying results: {e}")
+                                    st.markdown(ht_response)
                             else:
                                 st.error(f"Head Trader Failed: {err}")
 

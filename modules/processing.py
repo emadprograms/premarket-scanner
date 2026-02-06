@@ -99,9 +99,152 @@ def get_previous_session_stats(client, ticker: str, current_date_str: str, logge
     except Exception:
         return {"yesterday_close": 0, "yesterday_high": 0, "yesterday_low": 0}
 
-# ==========================================
-# THE IMPACT CONTEXT ENGINE (UPDATED FROM ENGINE LAB)
-# ==========================================
+from modules.capital_api import create_capital_session_v2, fetch_capital_data_range
+
+# --- DATA SOURCE ROUTING ---
+
+def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
+    """
+    Maps database tickers to Capital.com Epics.
+    Priority: 1. Explicit Map, 2. DB Lookup, 3. Raw Ticker.
+    """
+    normalized = ticker.upper().strip()
+    
+    # 1. EXPLICIT MAPPING (Based on database symbols)
+    EXPLICIT_MAP = {
+        "BTCUSDT": "BTCUSD",
+        "CL=F": "OIL_CRUDE",
+        "EURUSDT": "EURUSD",
+        "PAXGUSDT": "GOLD",
+        "QQQ": "US100",
+        "SPY": "US500",
+        "^VIX": "VIX",
+        "NDAQ": "US100",
+        # Major Indices
+        "DIA": "US30",
+        "IWM": "RTY",
+        "US30": "US30",
+        "RTY": "RTY",
+        
+        # Sector ETFs (Direct Mapping)
+        "XLC": "XLCP", # Proxy: UCITS Version (No US ETF)
+        "XLF": "XLF",
+        "XLI": "XLI",
+        "XLP": "XLP",
+        "XLU": "XLU",
+        "XLV": "XLV",
+        "SMH": "SMH",
+        "TLT": "TLT",
+        "UUP": "DXY"   # Proxy: US Dollar Index
+    }
+
+    if normalized in EXPLICIT_MAP:
+        return EXPLICIT_MAP[normalized]
+    
+    # 2. DB LOOKUP
+    if client:
+        try:
+            # Attempt to find the Epic mapping from Turso symbol_map table
+            rs = client.execute("SELECT capital_epic FROM symbol_map WHERE user_ticker = ?", [normalized])
+            if rs.rows and rs.rows[0][0]:
+                return rs.rows[0][0]
+        except Exception:
+            pass
+            
+    # 3. FINAL DEFAULT
+    return normalized
+
+def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: AppLogger = None) -> pd.DataFrame | None:
+    """Fetches data from Capital.com for Live Mode."""
+    cst, xst = create_capital_session_v2()
+    if not cst or not xst:
+        if logger: logger.log("   ❌ Capital.com Authentication Failed.")
+        return None
+        
+    epic = ticker_to_epic(ticker, client=client, logger=logger)
+    
+    # Capital.com has a 16h limit for 1-min data. 
+    # For a multi-day chart, this might be tricky if they only allow 1-min.
+    # But usually, it works for the immediate past.
+    now_utc = datetime.now(pytz_timezone('UTC'))
+    start_utc = now_utc - timedelta(days=days)
+    
+    df = fetch_capital_data_range(epic, cst, xst, start_utc, now_utc, logger)
+    if df.empty:
+        return None
+        
+    # Standardize columns for the engine (Title Case required for Analysis)
+    # Extraction keys are already Title Case, so we just ensure consistency.
+    # No rename needed if 'Open' is already 'Open'.
+    return df
+
+def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: int = 5, mode: str = "Simulation", logger: AppLogger = None) -> pd.DataFrame | None:
+    """
+    Fetches multi-day price history.
+    Simulation -> Turso DB
+    Live -> Capital.com
+    Returns: DataFrame with LOWERCASE columns ['open', 'close', ...] and 'timestamp'
+    """
+    if mode == "Live":
+        df = get_live_bars_from_capital(ticker, client=client, days=days, logger=logger)
+        if df is not None:
+             # Normalize Capital (Title) to Chart (Lower)
+             df.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+        return df
+    
+    # --- SIMULATION (DB) LOGIC ---
+    try:
+        # Calculate start date
+        clean_cutoff = cutoff_str.replace("Z", "").replace("T", " ")
+        try:
+             dt_cutoff = datetime.fromisoformat(clean_cutoff)
+        except:
+             # Fallback if isoformat fails on space
+             dt_cutoff = datetime.strptime(clean_cutoff, "%Y-%m-%d %H:%M:%S")
+
+        dt_start = dt_cutoff - timedelta(days=days)
+        start_str = dt_start.strftime("%Y-%m-%d %H:%M:%S")
+        
+        query = """
+            SELECT timestamp, open, high, low, close, volume 
+            FROM market_data 
+            WHERE symbol = ? AND timestamp >= ? AND timestamp <= ? 
+            ORDER BY timestamp ASC
+        """
+        
+        args = [ticker, start_str, cutoff_str]
+        rs = client.execute(query, args)
+        
+        if not rs.rows:
+            return None
+            
+        df = pd.DataFrame(rs.rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        
+        # Convert timestamp to datetime objects for Pandas
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+        # If timestamps are naive, assume they are UTC (as per rest of app logic)
+        if df['timestamp'].dt.tz is None:
+             df['timestamp'] = df['timestamp'].dt.tz_localize(pytz_timezone('UTC'))
+        
+        for col in ['open', 'high', 'low', 'close', 'volume']:
+             df[col] = pd.to_numeric(df[col], errors='coerce')
+             
+        return df
+
+    except Exception as e:
+        if logger: logger.log(f"Chart History DB Error ({ticker}): {e}")
+        return None
+
+def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None) -> pd.DataFrame | None:
+    """
+    Routes data fetching for the Analysis Engine.
+    Returns: DataFrame with TITLE CASE columns ['Open', 'Close'...]
+    """
+    if mode == "Live":
+        return get_live_bars_from_capital(epic, client=client, days=1, logger=logger)
+    else:
+        return get_session_bars_from_db(client, epic, benchmark_date_str, cutoff_str, logger)
 
 def detect_impact_levels(df):
     """
