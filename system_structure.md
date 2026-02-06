@@ -5,8 +5,13 @@ This application is designed on the principle of **"Glass Box" AI**. Instead of 
 
 ## 2. Directory Structure & Key Components
 
-### A. The Front-End (Streamlit Pages)
+### A. Root Directory
 *   **`app.py`**: The Launchpad. Simple routing script.
+*   **`.venv/`**: Python virtual environment (Python 3.12+). **(Not tracked in Git)**
+*   **`data/`**: Local data storage.
+    *   **`local_cache.db`**: Local SQLite replica of Turso DB for offline/fast mode.
+
+### B. The Front-End (Streamlit Pages)
 *   **`pages/1_📈_Context_Engine.py`**: **THE PRODUCTION COCKPIT**.
     *   This is where the user operates every morning.
     *   **Function**: Loads the "Economy Card" (EOD Context), fetches live Pre-Market data, runs the analysis algorithms, and constructs the Mega-Prompt for Gemini.
@@ -14,17 +19,19 @@ This application is designed on the principle of **"Glass Box" AI**. Instead of 
     *   An isolated sandbox for testing the market analysis algorithms (`detect_impact_levels`, etc.).
     *   **Data Source**: Can use Real Logic (via `yfinance` or DB) OR "Synthetic Data" (mathematically generated price paths) to stress-test the algo.
 
-### B. The "Brain Stem" (Modules)
+### C. The "Brain Stem" (Modules)
 Located in `modules/`:
 *   **`processing.py`**: **THE HEART OF THE LOGIC**.
     *   **`get_session_bars_from_db()`**: Fetches raw OHLCV data from Turso. **Crucial**: Filters for 04:00 - 09:30 ET (Pre-Market).
     *   **`detect_impact_levels()`**: The "Smart" Algo. Identifies Support/Resistance not by "touches" but by **Rejection Quality** (Magnitude * Log(Duration)).
     *   **`analyze_market_context()`**: The Master Function. Takes raw data, applies the algo, and returns a **JSON Observation Card**. This JSON is what the AI "sees".
-*   **`database.py`**: The Data Layer. Handles connections to Turso (libSQL).
+*   **`database.py`**: The Data Layer. Handles connections to Turso (libSQL) and the Local Cache (`data/local_cache.db`).
 *   **`key_manager.py`**: **The Guard Rails**.
     *   Manages a pool of Gemini API keys.
     *   Handles Rate Limiting (Token Bucket), Daily Quotas, and Model Rotation.
     *   **Note**: `gemini-2.5-pro` is currently hardcoded to bypass rate limits for speed.
+*   **`sync_engine.py`**: **Local Sync Logic**.
+    *   Handles the manual synchronization of tables from Turso Cloud to `data/local_cache.db`.
 
 ## 3. The Data Flow Pipeline
 

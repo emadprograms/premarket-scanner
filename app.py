@@ -511,7 +511,7 @@ def main():
         with st.status("📥 Syncing Database...", expanded=True) as status:
             temp_conn = get_db_connection(db_url, auth_token, local_mode=False)
             if temp_conn:
-                success = sync_turso_to_local(temp_conn, "local_cache.db", startup_logger)
+                success = sync_turso_to_local(temp_conn, "data/local_cache.db", startup_logger)
                 if success:
                     status.update(label="✅ Sync Complete!", state="complete")
                     st.toast("Local database updated.")

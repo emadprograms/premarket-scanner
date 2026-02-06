@@ -31,7 +31,7 @@ class LocalDBClient:
         return ResultSet(rows, cols)
 
 @st.cache_resource(show_spinner="Connecting to Headquarters...")
-def get_db_connection(db_url: str, auth_token: str, local_mode=False, local_path="local_cache.db"):
+def get_db_connection(db_url: str, auth_token: str, local_mode=False, local_path="data/local_cache.db"):
     if local_mode:
         import os
         if not os.path.exists(local_path):
