@@ -9,7 +9,9 @@ MARKET_OPEN_TIME = dt_time(9, 30)
 
 # --- DB FETCHING UTILITIES ---
 
-def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLogger) -> tuple[float | None, str | None]:
+from typing import Tuple, Optional, Union
+
+def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLogger) -> Tuple[Optional[float], Optional[str]]:
     query = "SELECT close, timestamp FROM market_data WHERE symbol = ? AND timestamp <= ? ORDER BY timestamp DESC LIMIT 1"
     try:
         rs = client.execute(query, [ticker, cutoff_str])
@@ -20,7 +22,7 @@ def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLo
         logger.log(f"DB Read Error {ticker}: {e}")
         return None, None
 
-def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger) -> pd.DataFrame | None:
+def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger) -> Optional[pd.DataFrame]:
     try:
         # We need High/Low/Close for Impact logic. Volume is optional but good to have.
         query = """
@@ -116,13 +118,13 @@ def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
         "CL=F": "OIL_CRUDE",
         "EURUSDT": "EURUSD",
         "PAXGUSDT": "GOLD",
-        "QQQ": "US100",
-        "SPY": "US500",
+        "QQQ": "QQQ",    # CHANGED: Use actual ETF Epic
+        "SPY": "SPY",    # CHANGED: Use actual ETF Epic
         "^VIX": "VIX",
         "NDAQ": "US100",
         # Major Indices
         "DIA": "US30",
-        "IWM": "RTY",
+        "IWM": "IWM",    # CHANGED: Use actual ETF Epic (was RTY)
         "US30": "US30",
         "RTY": "RTY",
         
@@ -131,9 +133,9 @@ def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
         "XLF": "XLF",
         "XLI": "XLI",
         "XLP": "XLP",
-        "XLU": "XLU",
-        "XLV": "XLV",
-        "SMH": "SMH",
+        "XLU": "XLUP", # Proxy: UCITS (Active in PM)
+        "XLV": "XLVP", # Proxy: UCITS (Active in PM)
+        "SMH": "SOXX", # CHANGED: Proxy (SMH not on Cap, SOXX is)
         "TLT": "TLT",
         "UUP": "DXY"   # Proxy: US Dollar Index
     }
@@ -154,7 +156,7 @@ def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
     # 3. FINAL DEFAULT
     return normalized
 
-def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: AppLogger = None) -> pd.DataFrame | None:
+def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: AppLogger = None) -> Optional[pd.DataFrame]:
     """Fetches data from Capital.com for Live Mode."""
     cst, xst = create_capital_session_v2()
     if not cst or not xst:
@@ -176,9 +178,14 @@ def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: 
     # Standardize columns for the engine (Title Case required for Analysis)
     # Extraction keys are already Title Case, so we just ensure consistency.
     # No rename needed if 'Open' is already 'Open'.
+    
+    # FIX: Rename SnapshotTime to timestamp (lowercase) for consistency with DB and Charting
+    if 'SnapshotTime' in df.columns:
+        df.rename(columns={'SnapshotTime': 'timestamp'}, inplace=True)
+        
     return df
 
-def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: int = 5, mode: str = "Simulation", logger: AppLogger = None) -> pd.DataFrame | None:
+def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: int = 5, mode: str = "Simulation", logger: AppLogger = None) -> Optional[pd.DataFrame]:
     """
     Fetches multi-day price history.
     Simulation -> Turso DB
@@ -236,7 +243,7 @@ def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: in
         if logger: logger.log(f"Chart History DB Error ({ticker}): {e}")
         return None
 
-def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None) -> pd.DataFrame | None:
+def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None) -> Optional[pd.DataFrame]:
     """
     Routes data fetching for the Analysis Engine.
     Returns: DataFrame with TITLE CASE columns ['Open', 'Close'...]

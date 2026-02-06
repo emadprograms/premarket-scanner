@@ -498,11 +498,31 @@ def main():
     if 'macro_index_data' not in st.session_state: st.session_state.macro_index_data = [] # NEW: Visual Table
     if 'macro_etf_structures' not in st.session_state: st.session_state.macro_etf_structures = [] # NEW: AI Data
     if 'utc_timezone' not in st.session_state: st.session_state.utc_timezone = timezone.utc
+    if 'local_mode' not in st.session_state: st.session_state.local_mode = False
+    if 'trigger_sync' not in st.session_state: st.session_state.trigger_sync = False
 
     # --- Startup ---
     startup_logger = st.session_state.app_logger
     db_url, auth_token = get_turso_credentials()
-    turso = get_db_connection(db_url, auth_token)
+    
+    # Handle Sync Trigger before connecting (need fresh connection for sync)
+    if st.session_state.trigger_sync:
+        with st.status("📥 Syncing Database...", expanded=True) as status:
+            from modules.sync_engine import sync_turso_to_local
+            temp_conn = get_db_connection(db_url, auth_token, local_mode=False)
+            if temp_conn:
+                success = sync_turso_to_local(temp_conn, "local_cache.db", startup_logger)
+                if success:
+                    status.update(label="✅ Sync Complete!", state="complete")
+                    st.toast("Local database updated.")
+                else:
+                    status.update(label="❌ Sync Failed", state="error")
+            else:
+                status.update(label="❌ Connection Failed", state="error")
+        st.session_state.trigger_sync = False
+        st.rerun()
+
+    turso = get_db_connection(db_url, auth_token, local_mode=st.session_state.local_mode)
     if turso:
         init_db_schema(turso, startup_logger)
     else:
@@ -589,10 +609,17 @@ def main():
                 
                 eod_card = {}
                 if latest_date:
+                    status.write(f"   ✅ Found Strategic Plan from: **{latest_date}**")
                     data = get_eod_economy_card(turso, latest_date, logger)
                     if data: 
                         eod_card = data
                         st.session_state.glassbox_eod_date = latest_date
+                else:
+                    status.write("   ⚠️ No Strategic Plan found for this window.")
+                    st.error("Stopping: Strategic Plan (EOD Card) is required for context.")
+                    st.warning("If using **Local Mode**, please click **🔄 Sync Database** in the sidebar to download the latest plans.")
+                    status.update(label="Missing Context", state="error")
+                    st.stop()
                 st.session_state.glassbox_eod_card = eod_card
 
                 # B. SCAN INDICES
@@ -874,58 +901,78 @@ def main():
                     status.write(f"Analyzing {len(full_ticker_list)} assets...")
 
                     for epic in full_ticker_list:
-                        # Use simulation time logic
-                        latest_price, price_ts = get_latest_price_details(turso, epic, simulation_cutoff_str, logger)
+                        latest_price = None
+                        price_ts = None
+                        df = None
+
+                        # 1. FETCH DATA (ROUTED: LIVE OR DB)
+                        from modules.processing import get_session_bars_routed
+                        df = get_session_bars_routed(turso, epic, benchmark_date_str, simulation_cutoff_str, mode, logger)
                         
-                        if latest_price:
-                            df = get_session_bars_from_db(turso, epic, benchmark_date_str, simulation_cutoff_str, logger)
+                        # 2. EXTRACT PRICE & TS FROM DF (Avoid separate DB lookup for Live mode)
+                        if df is not None and not df.empty:
+                            latest_row = df.iloc[-1]
+                            latest_price = float(latest_row['Close'])
+                            if 'timestamp' in df.columns:
+                                price_ts = latest_row['timestamp']
+                            elif 'dt_eastern' in df.columns:
+                                price_ts = latest_row['dt_eastern']
+                            
+                            # Fallback if mode is Sim but we fetched from DB, price might also be in DB meta
+                            # But using DF is safer for consistency.
+
+                        # 3. ANALYZE
+                        if df is not None and not df.empty:
+                            # RUN THE ALGO
                             ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
+                            card = analyze_market_context(df, ref_levels, ticker=epic)
+                            
+                            # Store for Proximity Scan
+                            st.session_state.glassbox_raw_cards[epic] = card
 
-                            if df is not None and not df.empty:
-                                # RUN THE ALGO
-                                card = analyze_market_context(df, ref_levels, ticker=epic)
-                                
-                                # Store for Proximity Scan
-                                st.session_state.glassbox_raw_cards[epic] = card
+                            # Update Table
+                            mig_count = len(card.get('value_migration_log', []))
+                            imp_count = len(card.get('key_level_rejections', []))
+                            
+                            freshness_score = 0.0
+                            try:
+                                if price_ts:
+                                    ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
+                                    ts_obj = datetime.fromisoformat(ts_clean)
+                                    # FIX: DB timestamps are UTC. Simulation is ET.
+                                    if ts_obj.tzinfo is None: 
+                                        utc_tz = pytz_timezone('UTC')
+                                        ts_obj = utc_tz.localize(ts_obj)
+                                    
+                                    # Convert to ET for comparison
+                                    ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                                    
+                                    lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                                    freshness_score = max(0.0, 1.0 - (lag_minutes / 60.0))
+                            except: pass
 
-                                # Update Table
-                                mig_count = len(card.get('value_migration_log', []))
-                                imp_count = len(card.get('key_level_rejections', []))
-                                
-                                freshness_score = 0.0
-                                try:
-                                    if price_ts:
-                                        ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
-                                        ts_obj = datetime.fromisoformat(ts_clean)
-                                        # FIX: DB timestamps are UTC. Simulation is ET.
-                                        if ts_obj.tzinfo is None: 
-                                            utc_tz = pytz_timezone('UTC')
-                                            ts_obj = utc_tz.localize(ts_obj)
-                                        
-                                        # Convert to ET for comparison
-                                        ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                                        
-                                        lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
-                                        freshness_score = max(0.0, 1.0 - (lag_minutes / 60.0))
-                                except: pass
-
-                                new_row = {
-                                    "Ticker": epic,
-                                    "Price": f"${latest_price:.2f}",
-                                    "Freshness": freshness_score,
-                                    "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
-                                    "Audit: Date": f"{price_ts}",
-                                    "Migration Blocks": mig_count,
-                                    "Impact Levels": imp_count,
-                                }
-                                st.session_state.glassbox_etf_data.append(new_row)
-                                etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), width="stretch")
+                            new_row = {
+                                "Ticker": epic,
+                                "Price": f"${latest_price:.2f}" if latest_price else "N/A",
+                                "Freshness": freshness_score,
+                                "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
+                                "Audit: Date": f"{price_ts}",
+                                "Migration Blocks": mig_count,
+                                "Impact Levels": imp_count,
+                            }
+                            st.session_state.glassbox_etf_data.append(new_row)
+                            etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), width="stretch")
+                        else:
+                             # Optional: Log missing data for debugging
+                             # st.toast(f"No Data for {epic}")
+                             pass
                     
                     status.update(label="Scanning Complete", state="complete")
         
         # VISUALIZATION (New Feature)
         if st.session_state.glassbox_raw_cards:
-            with st.expander("🔍 View Company Structure Charts (Visualized)", expanded=False):
+            st.markdown("### Market Structure Analysis (Visualized)")
+            with st.expander("🔍 View Company Structure Charts", expanded=True):
                 companies = sorted(list(st.session_state.glassbox_raw_cards.keys()))
                 st.caption(f"Visualizing {len(companies)} Asset Structures:")
                 
@@ -936,7 +983,7 @@ def main():
                     if fig:
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.warning(f"No chart data for {tkr}")
+                        st.warning(f"⚠️ Could not render chart for {tkr}. (Data might be insufficient: {card_data})")
                     st.divider()
 
         st.divider()
@@ -958,7 +1005,7 @@ def main():
                 
                 # 3. Fetch Stored Plans (S/R Levels)
                 with st.spinner(f"Searching for Strategic Plans (Target: {ref_date_str})..."):
-                    db_plans = get_eod_card_data_for_screener(turso, whitelist, ref_date_str, logger)
+                    db_plans = get_eod_card_data_for_screener(turso, tuple(whitelist), ref_date_str, logger)
                 
                 if not db_plans:
                      st.error(f"❌ No Strategic Plans found in DB (<= {ref_date_str}). Please ensure 'Head Trader' ran recently.")

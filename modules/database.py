@@ -1,12 +1,44 @@
 import streamlit as st
 import json
 import re
+import sqlite3
 from datetime import datetime
 from libsql_client import create_client_sync, LibsqlError
 from modules.utils import AppLogger
 
+class LocalDBClient:
+    """Wrapper to make sqlite3 look like libsql_client"""
+    def __init__(self, path):
+        self.path = path
+    
+    def execute(self, query, params=None):
+        conn = sqlite3.connect(self.path)
+        cursor = conn.cursor()
+        if params:
+            cursor.execute(query.replace('?', '?'), params) # sqlite3 uses ? too
+        else:
+            cursor.execute(query)
+        
+        rows = cursor.fetchall()
+        cols = [description[0] for description in cursor.description] if cursor.description else []
+        conn.close()
+        
+        # Mocking the ResultSet object
+        class ResultSet:
+            def __init__(self, rows, columns):
+                self.rows = rows
+                self.columns = columns
+        return ResultSet(rows, cols)
+
 @st.cache_resource(show_spinner="Connecting to Headquarters...")
-def get_db_connection(db_url: str, auth_token: str):
+def get_db_connection(db_url: str, auth_token: str, local_mode=False, local_path="local_cache.db"):
+    if local_mode:
+        import os
+        if not os.path.exists(local_path):
+            st.warning("Local database not found. Please Sync first.")
+            return None
+        return LocalDBClient(local_path)
+        
     if not db_url or not auth_token:
         return None
     try:
@@ -16,6 +48,8 @@ def get_db_connection(db_url: str, auth_token: str):
         return None
 
 def init_db_schema(client, logger: AppLogger):
+    if isinstance(client, LocalDBClient):
+        return # Assume local schema is synced from Turso
     try:
         client.execute("""
             CREATE TABLE IF NOT EXISTS premarket_snapshots (
@@ -31,10 +65,11 @@ def init_db_schema(client, logger: AppLogger):
     except Exception as e:
         logger.log(f"DB Error: {e}")
 
-def get_latest_economy_card_date(client, cutoff_str: str, logger: AppLogger) -> str:
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -> str:
     try:
         cutoff_date_part = cutoff_str.split(" ")[0]
-        rs = client.execute(
+        rs = _client.execute(
             "SELECT MAX(date) FROM economy_cards WHERE date <= ?",
             [cutoff_date_part]
         )
@@ -42,12 +77,13 @@ def get_latest_economy_card_date(client, cutoff_str: str, logger: AppLogger) -> 
     except Exception:
         return None
 
-def get_eod_economy_card(client, benchmark_date: str, logger: AppLogger) -> dict:
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eod_economy_card(_client, benchmark_date: str, _logger: AppLogger) -> dict:
     try:
-        rs = client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (benchmark_date,))
+        rs = _client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (benchmark_date,))
         return json.loads(rs.rows[0][0]) if rs.rows and rs.rows[0][0] else None
     except Exception as e:
-        logger.log(f"DB Error (EOD Card): {e}")
+        _logger.log(f"DB Error (EOD Card): {e}")
         return None
 
 def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tuple[list[float], list[float]]:
@@ -85,9 +121,12 @@ def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tupl
         pass
     return s_levels, r_levels
 
-def get_eod_card_data_for_screener(client, ticker_list: list, benchmark_date: str, logger: AppLogger) -> dict:
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date: str, _logger: AppLogger) -> dict:
+    # Use ticker_tuple for caching compatibility (lists are unhashable)
+    ticker_list = list(ticker_tuple)
     db_data = {}
-    if not ticker_list or not client:
+    if not ticker_list or not _client:
         return db_data
 
     query = f"""
@@ -101,12 +140,12 @@ def get_eod_card_data_for_screener(client, ticker_list: list, benchmark_date: st
     """
     try:
         args = [benchmark_date] + ticker_list
-        rs = client.execute(query, args)
+        rs = _client.execute(query, args)
         for row in rs.rows:
             ticker, card_json_blob, actual_date = row[0], row[1], row[2]
             if not card_json_blob:
                 continue
-            s_levels, r_levels = _parse_levels_from_json_blob(card_json_blob, logger)
+            s_levels, r_levels = _parse_levels_from_json_blob(card_json_blob, _logger)
             try:
                 briefing_data = json.loads(card_json_blob).get('screener_briefing')
                 briefing_text = (
@@ -124,20 +163,21 @@ def get_eod_card_data_for_screener(client, ticker_list: list, benchmark_date: st
             }
         return db_data
     except Exception as e:
-        logger.log(f"DB Error (EOD Data): {e}")
+        _logger.log(f"DB Error (EOD Data): {e}")
         return {}
 
-def get_all_tickers_from_db(client, logger: AppLogger) -> list[str]:
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_all_tickers_from_db(_client, _logger: AppLogger) -> list[str]:
     try:
-        rs = client.execute("SELECT user_ticker FROM symbol_map")
+        rs = _client.execute("SELECT user_ticker FROM symbol_map")
         return [row[0] for row in rs.rows]
     except Exception as e:
-        logger.log(f"DB Error (Get Tickers): {e}")
+        _logger.log(f"DB Error (Get Tickers): {e}")
         return []
 
 def save_snapshot(client, news_input: str, eco_card: dict, live_stats: str, briefing: str, logger: AppLogger) -> bool:
-    if not client:
-        return False
+    if not client or isinstance(client, LocalDBClient):
+        return False # Don't save snapshots to local cache
     try:
         ts = datetime.now().isoformat()
         eco_json = json.dumps(eco_card)

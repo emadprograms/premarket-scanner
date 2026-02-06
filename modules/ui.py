@@ -16,7 +16,7 @@ def render_mission_config(available_models, formatter=None):
         st.caption("🟢 System Ready (v3.1 Verified)")
         
         # Row 1: Model, Mode, Time
-        c1, c2, c3 = st.columns([2, 1, 2])
+        c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
         
         with c1:
             format_func = (lambda x: formatter.get(x, x)) if formatter else (lambda x: x)
@@ -28,6 +28,11 @@ def render_mission_config(available_models, formatter=None):
             logic_mode = "Simulation" if is_sim else "Live"
 
         with c3:
+            # NEW: Local Test Mode Toggle
+            is_local = st.toggle("🛰️ Local", value=False, help="Use local database cache to save Turso reads.")
+            st.session_state.local_mode = is_local
+
+        with c4:
             if logic_mode == "Live":
                 simulation_cutoff_dt = datetime.now(st.session_state.market_timezone)
                 st.caption(f"🟢 **LIVE**: {simulation_cutoff_dt.strftime('%H:%M:%S')} ET")
@@ -43,6 +48,23 @@ def render_mission_config(available_models, formatter=None):
                 naive_dt = datetime.combine(sim_date, sim_time)
                 simulation_cutoff_dt = st.session_state.market_timezone.localize(naive_dt)
 
+        # NEW: Sync Button Area
+        if is_local:
+            st.divider()
+            sc1, sc2 = st.columns([1, 2])
+            with sc1:
+                if st.button("🔄 Sync Database", use_container_width=True):
+                    # We will handle the actual sync logic in app.py via callback/return
+                    st.session_state.trigger_sync = True
+            with sc2:
+                import os
+                if os.path.exists("local_cache.db"):
+                    mtime = os.path.getmtime("local_cache.db")
+                    last_sync = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    st.caption(f"Last Sync: {last_sync}")
+                else:
+                    st.warning("No local cache found. Please Sync.")
+
         # FIX: Database stores timestamps in UTC.
         # We must convert the ET cutoff to UTC for the SQL query string.
         cutoff_utc = simulation_cutoff_dt.astimezone(pytz.utc)
@@ -55,6 +77,10 @@ def render_mission_config(available_models, formatter=None):
     with status_container:
         s1, s2, s3 = st.columns(3)
         s1.caption(f"📅 Analysis: **{analysis_date}**")
+        
+        # NEW: Show Strategic Plan (EOD Card) Date
+        plan_date = st.session_state.get('glassbox_eod_date', 'None')
+        s1.caption(f"📜 Strategic Plan: **{plan_date}**")
         
         if 'key_manager_instance' in st.session_state and st.session_state.key_manager_instance:
                 s2.success("✅ Key Manager: Active")

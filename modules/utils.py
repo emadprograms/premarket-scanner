@@ -35,8 +35,9 @@ def get_turso_credentials():
         # 1. Attempt Infisical Logic
         mgr = InfisicalManager()
         if mgr.is_connected:
-            db_url = mgr.get_secret("turso_emadarshadalam_newsdatabase_DB_URL")
-            auth_token = mgr.get_secret("turso_emadarshadalam_newsdatabase_AUTH_TOKEN")
+            # SWITCHED TO ANALYST WORKBENCH (Has Keys & Context)
+            db_url = mgr.get_secret("turso_emadprograms_analystworkbench_DB_URL")
+            auth_token = mgr.get_secret("turso_emadprograms_analystworkbench_AUTH_TOKEN")
             
             if db_url and auth_token:
                 # Ensure HTTPS
