@@ -28,9 +28,9 @@ class InfisicalManager:
                 options = AuthenticationOptions(universal_auth=auth_method)
                 self.client = InfisicalClient(ClientSettings(auth=options))
                 self.is_connected = True
-                print("✅ Infisical Connected")
+                print("[OK] Infisical Connected")
             except Exception as e:
-                print(f"❌ Infisical Auth Failed: {e}")
+                print(f"[ERROR] Infisical Auth Failed: {e}")
 
     def get_secret(self, secret_name):
         if not self.is_connected: return None
@@ -45,5 +45,5 @@ class InfisicalManager:
             # NOTE: Use snake_case for attribute access (.secret_value, NOT .secretValue)
             return secret.secret_value 
         except Exception as e:
-            print(f"❌ Missing Secret: {secret_name}")
+            print(f"[ERROR] Missing Secret: {secret_name}")
             return None

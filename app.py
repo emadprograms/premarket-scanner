@@ -429,7 +429,7 @@ try:
     )
     from modules.sync_engine import sync_turso_to_local
 except ImportError as e:
-    st.error(f"❌ CRITICAL MISSING FILE: {e}")
+    st.error(f"[ERROR] CRITICAL MISSING FILE: {e}")
     st.stop()
 
 

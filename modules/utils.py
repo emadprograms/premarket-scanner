@@ -55,5 +55,5 @@ def get_turso_credentials():
             
         return None, None
     except Exception as e:
-        st.error(f"❌ Critical Initialization Error: {e}")
+        st.error(f"[ERROR] Critical Initialization Error: {e}")
         return None, None
