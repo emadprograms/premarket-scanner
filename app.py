@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import json
 import time
+import concurrent.futures
 import re
 from datetime import datetime, timezone, timedelta
 from pytz import timezone as pytz_timezone
@@ -648,71 +649,87 @@ def main():
                         st.stop()
 
                 progress_bar = st.progress(0)
-                for idx, epic in enumerate(CORE_INTERMARKET_TICKERS):
-                    # Rate Limit Protection for API (10 req/sec max, safer to pace it)
-                    time.sleep(0.3)
+                def process_macro_parallel(t):
+                    """Worker function for macro index structure scanning."""
+                    try:
+                        # ROUTED DATA FETCH (Live/Sim)
+                        df = get_session_bars_routed(
+                            turso, 
+                            t, 
+                            benchmark_date_str, 
+                            simulation_cutoff_str, 
+                            mode=mode, 
+                            logger=None, # Avoid thread noise
+                            db_fallback=st.session_state.get('db_fallback', False)
+                        )
+                        
+                        if df is None or df.empty:
+                            return None
+
+                        latest_price = df.iloc[-1]['Close']
+                        p_ts = df.iloc[-1]['timestamp']
+                        
+                        # Get Previous Close Reference
+                        ref_levels = get_previous_session_stats(turso, t, benchmark_date_str, logger=None)
+                        card = analyze_market_context(df, ref_levels, ticker=t)
+                        
+                        mig_count = len(card.get('value_migration_log', []))
+                        imp_count = len(card.get('key_level_rejections', []))
+                        freshness = 0.0
+                        try:
+                            if p_ts:
+                                ts_clean = str(p_ts).replace("Z", "+00:00").replace(" ", "T")
+                                ts_obj = datetime.fromisoformat(ts_clean)
+                                if ts_obj.tzinfo is None: 
+                                    ts_obj = pytz_timezone('UTC').localize(ts_obj)
+                                
+                                ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                                lag_min = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                                freshness = max(0.0, 1.0 - (lag_min / 60.0))
+                        except: pass
+
+                        data_source = df['source'].iloc[0] if 'source' in df.columns else ('Capital.com' if mode == 'Live' else 'DB')
+                        
+                        return {
+                            "ticker": t,
+                            "card": card,
+                            "df": df, # Needed for chart rendering after
+                            "latest_price": latest_price,
+                            "data_source": data_source,
+                            "mig_count": mig_count,
+                            "imp_count": imp_count,
+                            "freshness": freshness
+                        }
+                    except Exception:
+                        return None
+
+                status.write("2. Scanning Core Indices (Parallel Structure Scan)...")
+                
+                # Use ThreadPoolExecutor for speed
+                macro_results = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = [executor.submit(process_macro_parallel, t) for t in CORE_INTERMARKET_TICKERS]
+                    for future in concurrent.futures.as_completed(futures):
+                        res = future.result()
+                        if res:
+                            macro_results.append(res)
+                
+                # Final Processing & UI Rendering (Main Thread)
+                for idx, res in enumerate(macro_results):
+                    st.session_state.macro_etf_structures.append(json.dumps(res['card']))
+                    st.session_state.macro_index_data.append({
+                        "Ticker": res['ticker'],
+                        "Source": res['data_source'],
+                        "Price": f"${res['latest_price']:.2f}",
+                        "Migration Steps": res['mig_count'],
+                        "Impact Zones": res['imp_count']
+                    })
                     
-                    epic_cap = ticker_to_epic(epic, client=turso) if mode == "Live" else epic
+                    # VISUAL VERIFICATION (Expanders)
+                    with st.expander(f"📊 {res['ticker']} ({res['data_source']}) - Structure", expanded=(idx == 0)):
+                        render_lightweight_chart_simple(res['df'], res['ticker'], height=250)
+                        st.caption(f"Latest: {res['latest_price']} | Source: **{res['data_source']}**")
 
-                    # ROUTED DATA FETCH (Live/Sim) - Force Reload (v2)
-                    df = get_session_bars_routed(
-                        turso, 
-                        epic, 
-                        benchmark_date_str, 
-                        simulation_cutoff_str, 
-                        mode=mode, 
-                        logger=logger,
-                        db_fallback=st.session_state.get('db_fallback', False)
-                    )
-                    
-                    if df is not None and not df.empty:
-                         latest_price = df.iloc[-1]['Close']
-                         price_ts = df.iloc[-1]['timestamp']
-                         
-                         # Get Previous Close Reference (Usually from DB, safe fallback)
-                         ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
-                         
-                         card = analyze_market_context(df, ref_levels, ticker=epic)
-                         st.session_state.macro_etf_structures.append(json.dumps(card))
-                            
-                         mig_count = len(card.get('value_migration_log', []))
-                         imp_count = len(card.get('key_level_rejections', []))
-                         freshness = 0.0
-                         try:
-                             if price_ts:
-                                 ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
-                                 ts_obj = datetime.fromisoformat(ts_clean)
-                                 # FIX: DB timestamps are UTC. Simulation is ET.
-                                 if ts_obj.tzinfo is None: 
-                                     utc_tz = pytz_timezone('UTC')
-                                     ts_obj = utc_tz.localize(ts_obj)
-                                 
-                                 # Convert to ET for comparison
-                                 ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                                 
-                                 lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
-                                 freshness = max(0.0, 1.0 - (lag_minutes / 60.0))
-                         except: pass
-
-                         # VISUAL VERIFICATION (User Request - Interactive)
-                         with st.expander(f"📊 {epic} ({epic_cap if mode == 'Live' else 'DB'}) Live Data ({len(df)} bars)", expanded=(idx == 0)):
-                                render_lightweight_chart_simple(df, epic, height=250)
-                                data_source = df['source'].iloc[0] if 'source' in df.columns else ('Capital.com' if mode == 'Live' else 'DB')
-                                st.caption(f"Latest: {latest_price} | Source: **{data_source}** | Epic: {epic_cap}")
-                         st.session_state.macro_index_data.append({
-                             "Ticker": epic,
-                             "Source": data_source, # CLARIFIED: Epic -> Source
-                             "Price": f"${latest_price:.2f}",
-                             "Migration Steps": mig_count,
-                             "Impact Zones": imp_count
-                         })
-                    else:
-                         # FAILURE UI (Explicit Visibility)
-                         # Log failure but continue
-                         pass
-
-                    progress_bar.progress((idx + 1) / len(CORE_INTERMARKET_TICKERS))
-                progress_bar.empty()
 
                 # CRITICAL CHECK: PREVENT EMPTY API CALLS
                 if not st.session_state.macro_etf_structures:
@@ -972,87 +989,81 @@ def main():
                 st.session_state.glassbox_raw_cards = {} # Reset
                 etf_placeholder.empty()
                 
-                with st.status(f"Scanning Watchlist Structures ({mode})...", expanded=True) as status:
-                    watchlist = fetch_watchlist(turso, logger)
-                    # STEP 1: FOCUS ON WATCHLIST (COMPANIES) ONLY
-                    # Core ETFs are handled in Step 1 for Macro Context.
-                    full_ticker_list = sorted(list(set(watchlist)))
-                    
-                    status.write(f"Analyzing {len(full_ticker_list)} assets...")
-
-                    for epic in full_ticker_list:
-                        latest_price = None
-                        price_ts = None
-                        df = None
-
+                def process_ticker_parallel(ticker_to_scan):
+                    """Worker function for parallel structure scanning."""
+                    try:
                         # 1. FETCH DATA (ROUTED: LIVE OR DB)
                         df = get_session_bars_routed(
                             turso, 
-                            epic, 
+                            ticker_to_scan, 
                             benchmark_date_str, 
                             simulation_cutoff_str, 
                             mode, 
-                            logger,
+                            logger=None, # Avoid thread noise
                             db_fallback=st.session_state.get('db_fallback', False)
                         )
                         
-                        # 2. EXTRACT PRICE & TS FROM DF (Avoid separate DB lookup for Live mode)
-                        if df is not None and not df.empty:
-                            latest_row = df.iloc[-1]
-                            latest_price = float(latest_row['Close'])
-                            if 'timestamp' in df.columns:
-                                price_ts = latest_row['timestamp']
-                            elif 'dt_eastern' in df.columns:
-                                price_ts = latest_row['dt_eastern']
-                            
-                            # Fallback if mode is Sim but we fetched from DB, price might also be in DB meta
-                            # But using DF is safer for consistency.
+                        if df is None or df.empty:
+                            return None
 
-                        # 3. ANALYZE
-                        if df is not None and not df.empty:
-                            # RUN THE ALGO
-                            ref_levels = get_previous_session_stats(turso, epic, benchmark_date_str, logger)
-                            card = analyze_market_context(df, ref_levels, ticker=epic)
-                            
-                            # Store for Proximity Scan
-                            st.session_state.glassbox_raw_cards[epic] = card
+                        latest_row = df.iloc[-1]
+                        l_price = float(latest_row['Close'])
+                        p_ts = latest_row['timestamp'] if 'timestamp' in df.columns else latest_row.get('dt_eastern')
 
-                            # Update Table
-                            mig_count = len(card.get('value_migration_log', []))
-                            imp_count = len(card.get('key_level_rejections', []))
+                        # 2. ANALYZE
+                        ref_levels = get_previous_session_stats(turso, ticker_to_scan, benchmark_date_str, logger=None)
+                        card = analyze_market_context(df, ref_levels, ticker=ticker_to_scan)
+                        
+                        # 3. CALCULATE UI DATA
+                        mig_count = len(card.get('value_migration_log', []))
+                        imp_count = len(card.get('key_level_rejections', []))
+                        
+                        freshness_score = 0.0
+                        l_minutes = 0.0
+                        if p_ts:
+                            ts_clean = str(p_ts).replace("Z", "+00:00").replace(" ", "T")
+                            ts_obj = datetime.fromisoformat(ts_clean)
+                            if ts_obj.tzinfo is None: 
+                                ts_obj = pytz_timezone('UTC').localize(ts_obj)
                             
-                            freshness_score = 0.0
-                            try:
-                                if price_ts:
-                                    ts_clean = str(price_ts).replace("Z", "+00:00").replace(" ", "T")
-                                    ts_obj = datetime.fromisoformat(ts_clean)
-                                    # FIX: DB timestamps are UTC. Simulation is ET.
-                                    if ts_obj.tzinfo is None: 
-                                        utc_tz = pytz_timezone('UTC')
-                                        ts_obj = utc_tz.localize(ts_obj)
-                                    
-                                    # Convert to ET for comparison
-                                    ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                                    
-                                    lag_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
-                                    freshness_score = max(0.0, 1.0 - (lag_minutes / 60.0))
-                            except: pass
+                            ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                            l_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                            freshness_score = max(0.0, 1.0 - (l_minutes / 60.0))
 
-                            new_row = {
-                                "Ticker": epic,
-                                "Price": f"${latest_price:.2f}" if latest_price else "N/A",
+                        return {
+                            "ticker": ticker_to_scan,
+                            "card": card,
+                            "table_row": {
+                                "Ticker": ticker_to_scan,
+                                "Price": f"${l_price:.2f}",
                                 "Freshness": freshness_score,
-                                "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
-                                "Audit: Date": f"{price_ts}",
+                                "Lag (m)": f"{l_minutes:.1f}" if p_ts else "N/A",
+                                "Audit: Date": f"{p_ts}",
                                 "Migration Blocks": mig_count,
                                 "Impact Levels": imp_count,
                             }
-                            st.session_state.glassbox_etf_data.append(new_row)
-                            etf_placeholder.dataframe(pd.DataFrame(st.session_state.glassbox_etf_data), width="stretch")
-                        else:
-                             # Optional: Log missing data for debugging
-                             # st.toast(f"No Data for {epic}")
-                             pass
+                        }
+                    except Exception:
+                        return None
+
+                with st.status(f"Scanning Watchlist Structures ({mode})...", expanded=True) as status:
+                    watchlist = fetch_watchlist(turso, logger)
+                    full_ticker_list = sorted(list(set(watchlist)))
+                    status.write(f"Analyzing {len(full_ticker_list)} assets in parallel...")
+
+                    # Use ThreadPoolExecutor for speed
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                        future_to_ticker = {executor.submit(process_ticker_parallel, t): t for t in full_ticker_list}
+                        
+                        for future in concurrent.futures.as_completed(future_to_ticker):
+                            result = future.result()
+                            if result:
+                                # Update session state in main thread
+                                st.session_state.glassbox_raw_cards[result['ticker']] = result['card']
+                                st.session_state.glassbox_etf_data.append(result['table_row'])
+
+                    status.update(label="✅ Scan Complete!", state="complete")
+                    st.rerun()
                     
                     status.update(label="Scanning Complete", state="complete")
         
