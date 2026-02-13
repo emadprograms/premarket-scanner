@@ -1111,82 +1111,86 @@ def main():
                     found_dates = sorted(list(set(d.get('plan_date', 'Unknown') for d in db_plans.values())))
                     date_display = ", ".join(found_dates)
                     st.write(f"🔍 **Loaded Strategic Plans from: {date_display}** ({len(db_plans)} tickers)")
-                    results = []
-                    # 4. Scan
-                    progress_bar = st.progress(0)
-                    idx = 0
-                    for ticker in whitelist:
-                        # Update Progress
-                        idx += 1
-                        progress_bar.progress(idx / len(whitelist))
-
-                        # Get Plan Levels
-                        plan = db_plans.get(ticker)
-                        if not plan: continue
-                        
-                        s_levels = plan.get('s_levels', [])
-                        r_levels = plan.get('r_levels', [])
-                        if not s_levels and not r_levels: continue
-
-                        # Get Live Price
-                        # FIX: Use routed fetch to get LIVE price in Live Mode (or DB in Sim/Fallback)
-                        latest_price = None
+                    def process_proximity_parallel(ticker_to_scan):
+                        """Worker for Proximity Scan."""
                         try:
+                            # 1. Get Plan
+                            plan_data = db_plans.get(ticker_to_scan)
+                            if not plan_data: return None
+                            
+                            s_levels = plan_data.get('s_levels', [])
+                            r_levels = plan_data.get('r_levels', [])
+                            if not s_levels and not r_levels: return None
+
+                            # 2. Get Live Price
                             df_prox = get_session_bars_routed(
                                 turso, 
-                                ticker, 
+                                ticker_to_scan, 
                                 benchmark_date_str, 
                                 simulation_cutoff_str, 
                                 mode=mode, 
-                                logger=None if mode == "Live" else logger, # Reduce log noise
+                                logger=None, 
                                 db_fallback=st.session_state.get('db_fallback', False),
                                 premarket_only=False
                             )
-                            if df_prox is not None and not df_prox.empty:
-                                latest_price = float(df_prox.iloc[-1]['Close'])
+                            
+                            if df_prox is None or df_prox.empty: return None
+                            cur_price = float(df_prox.iloc[-1]['Close'])
+                            
+                            # 3. Analyze Proximity
+                            local_min_dist = float('inf')
+                            local_best = None
+
+                            # Check Support
+                            for lvl in s_levels:
+                                dist_pct = abs(cur_price - lvl) / cur_price * 100
+                                if dist_pct <= scan_threshold:
+                                    if dist_pct < local_min_dist:
+                                        local_min_dist = dist_pct
+                                        local_best = {
+                                            "Ticker": ticker_to_scan,
+                                            "Price": f"${cur_price:.2f}",
+                                            "Type": "SUPPORT",
+                                            "Level": lvl,
+                                            "Dist %": round(dist_pct, 2),
+                                            "Source": f"Plan {plan_data.get('plan_date', ref_date_str)}"
+                                        }
+
+                            # Check Resistance
+                            for lvl in r_levels:
+                                dist_pct = abs(cur_price - lvl) / cur_price * 100
+                                if dist_pct <= scan_threshold:
+                                    if dist_pct < local_min_dist:
+                                        local_min_dist = dist_pct
+                                        local_best = {
+                                            "Ticker": ticker_to_scan,
+                                            "Price": f"${cur_price:.2f}",
+                                            "Type": "RESISTANCE",
+                                            "Level": lvl,
+                                            "Dist %": round(dist_pct, 2),
+                                            "Source": f"Plan {plan_data.get('plan_date', ref_date_str)}"
+                                        }
+                            return local_best
                         except Exception:
-                            pass
-                        
-                        if not latest_price: continue
-                        
-                        # Find Best Match (Closest Level)
-                        best_match = None
-                        min_dist = float('inf')
+                            return None
 
-                        # Check Support
-                        for lvl in s_levels:
-                            dist_pct = abs(latest_price - lvl) / latest_price * 100
-                            if dist_pct <= scan_threshold:
-                                if dist_pct < min_dist:
-                                    min_dist = dist_pct
-                                    best_match = {
-                                        "Ticker": ticker,
-                                        "Price": f"${latest_price:.2f}",
-                                        "Type": "SUPPORT",
-                                        "Level": lvl,
-                                        "Dist %": round(dist_pct, 2),
-                                        "Source": f"Plan {plan.get('plan_date', ref_date_str)}"
-                                    }
-
-                        # Check Resistance
-                        for lvl in r_levels:
-                            dist_pct = abs(latest_price - lvl) / latest_price * 100
-                            if dist_pct <= scan_threshold:
-                                if dist_pct < min_dist:
-                                    min_dist = dist_pct
-                                    best_match = {
-                                        "Ticker": ticker,
-                                        "Price": f"${latest_price:.2f}",
-                                        "Type": "RESISTANCE",
-                                        "Level": lvl,
-                                        "Dist %": round(dist_pct, 2),
-                                        "Source": f"Plan {plan.get('plan_date', ref_date_str)}"
-                                    }
+                    results = []
+                    # 4. Scan in Parallel
+                    with st.status(f"Scanning Watchlist Proximity ({mode})...", expanded=True) as status_prox:
+                        status_prox.write(f"Analyzing {len(whitelist)} tickers against plans...")
                         
-                        if best_match:
-                            results.append(best_match)
-
-                    progress_bar.empty()
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                            future_prox = {executor.submit(process_proximity_parallel, t): t for t in whitelist}
+                            
+                            for future in concurrent.futures.as_completed(future_prox):
+                                try:
+                                    res_prox = future.result()
+                                    if res_prox:
+                                        results.append(res_prox)
+                                except Exception as exc:
+                                    logger.log(f"{future_prox[future]} Proximity error: {exc}")
+                        
+                        status_prox.update(label="✅ Proximity Scan Complete!", state="complete")
 
                     if results:
                         st.success(f"🎯 Found {len(results)} Proximity Alerts (vs. Strategic Plan)")
