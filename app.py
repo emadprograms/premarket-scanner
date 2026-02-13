@@ -501,6 +501,7 @@ def main():
     if 'utc_timezone' not in st.session_state: st.session_state.utc_timezone = timezone.utc
     if 'local_mode' not in st.session_state: st.session_state.local_mode = False
     if 'trigger_sync' not in st.session_state: st.session_state.trigger_sync = False
+    if 'step1_data_ready' not in st.session_state: st.session_state.step1_data_ready = False # NEW: Workflow Split
 
     # --- Startup ---
     startup_logger = st.session_state.app_logger
@@ -544,6 +545,9 @@ def main():
     model_labels = {k: v['display'] for k, v in KeyManager.MODELS_CONFIG.items()}
     selected_model, mode, simulation_cutoff_dt, simulation_cutoff_str = render_mission_config(AVAILABLE_MODELS, formatter=model_labels)
 
+    analysis_date = st.session_state.analysis_date
+    benchmark_date_str = analysis_date.isoformat()
+    
     # --- STATE MANAGEMENT: RESET ON CONFIG CHANGE ---
     # MODIFIED: We remove 'selected_model' from the signature so changing the model
     # does NOT wipe the screen. We only wipe if MODE or DATE changes.
@@ -590,17 +594,26 @@ def main():
     # TAB 1: MACRO CONTEXT (STEP 1)
     # ==============================================================================
     with tab1:
-        pm_news = render_main_content(mode, simulation_cutoff_dt)
+        # --- STEP 1a: MACRO DATA FETCH ---
+        st.header("Step 1a: Macro Data Fetch")
         
-        # --- STEP 1: MACRO CONTEXT ---
+        # News Input: Always Visible (User Request)
+        st.caption("📝 Overnight News / Context")
+        pm_news = st.text_area("Paste relevant headlines/catalysts here...", height=100, key="pm_news_input", label_visibility="collapsed")
         
-        # 1. Action Button
-        if st.button("Generate Macro Context (Step 1)", type="primary"):
-            # RESET MACRO STATE
+        st.markdown("---") # UI CLEANUP: Separator
+        
+        # 1. Action Button: FETCH DATA ONLY
+        def clear_step1_state():
             st.session_state.macro_index_data = [] 
             st.session_state.macro_etf_structures = [] 
+            st.session_state.step1_data_ready = False
+            st.session_state.premarket_economy_card = None 
+
+        if st.button("Fetch Market Data (Step 1a)", type="primary", on_click=clear_step1_state):
+            # State is already cleared by callback
             
-            with st.status(f"Synthesizing Macro Narrative...", expanded=True) as status:
+            with st.status(f"Fetching Macro Data...", expanded=True) as status:
                 
                 # A. FETCH EOD
                 status.write("1. Retrieving End-of-Day Context...")
@@ -624,7 +637,6 @@ def main():
 
                 # B. SCAN INDICES
                 status.write("2. Scanning Core Indices (Structure)...")
-                benchmark_date_str = st.session_state.analysis_date.isoformat()
                 
                 # PRE-FLIGHT CHECK: Live Mode Authentication
                 if mode == "Live":
@@ -643,7 +655,15 @@ def main():
                     epic_cap = ticker_to_epic(epic, client=turso) if mode == "Live" else epic
 
                     # ROUTED DATA FETCH (Live/Sim) - Force Reload (v2)
-                    df = get_session_bars_routed(turso, epic, benchmark_date_str, simulation_cutoff_str, mode=mode, logger=logger)
+                    df = get_session_bars_routed(
+                        turso, 
+                        epic, 
+                        benchmark_date_str, 
+                        simulation_cutoff_str, 
+                        mode=mode, 
+                        logger=logger,
+                        db_fallback=st.session_state.get('db_fallback', False)
+                    )
                     
                     if df is not None and not df.empty:
                          latest_price = df.iloc[-1]['Close']
@@ -674,26 +694,23 @@ def main():
                                  freshness = max(0.0, 1.0 - (lag_minutes / 60.0))
                          except: pass
 
-                         st.session_state.macro_index_data.append({
-                             "Ticker": epic,
-                             "Epic": epic_cap if mode == "Live" else "DB",
-                             "Price": f"${latest_price:.2f}",
-                             "Freshness": freshness,
-                             "Lag (m)": f"{lag_minutes:.1f}" if price_ts else "N/A", # DEBUG
-                             "DB Time": str(price_ts) if price_ts else "N/A",       # DEBUG
-                             "Migration Steps": mig_count,
-                             "Impact Zones": imp_count
-                         })
-                         
                          # VISUAL VERIFICATION (User Request - Interactive)
                          with st.expander(f"📊 {epic} ({epic_cap if mode == 'Live' else 'DB'}) Live Data ({len(df)} bars)", expanded=(idx == 0)):
                                 render_lightweight_chart_simple(df, epic, height=250)
-                                st.caption(f"Latest: {latest_price} | Source: {'Capital.com' if mode == 'Live' else 'DB'} | Epic: {epic_cap}")
+                                data_source = df['source'].iloc[0] if 'source' in df.columns else ('Capital.com' if mode == 'Live' else 'DB')
+                                st.caption(f"Latest: {latest_price} | Source: **{data_source}** | Epic: {epic_cap}")
+                         st.session_state.macro_index_data.append({
+                             "Ticker": epic,
+                             "Source": data_source, # CLARIFIED: Epic -> Source
+                             "Price": f"${latest_price:.2f}",
+                             "Migration Steps": mig_count,
+                             "Impact Zones": imp_count
+                         })
                     else:
                          # FAILURE UI (Explicit Visibility)
-                         with st.expander(f"⚠️ {epic} ({epic_cap if mode == 'Live' else 'DB'}) - No Data", expanded=False):
-                             st.warning(f"Could not fetch data for {epic} (Epic: {epic_cap}). Check Mapping or Rate Limits.")
-                             st.caption("Common reasons: Closed Market, Invalid Symbol, or 10 req/sec limit exceeded.")
+                         # Log failure but continue
+                         pass
+
                     progress_bar.progress((idx + 1) / len(CORE_INTERMARKET_TICKERS))
                 progress_bar.empty()
 
@@ -705,69 +722,133 @@ def main():
                     else:
                          st.error("❌ No Market Data found in DB (Core Indices). Aborting AI Call to save credits.")
                     st.stop()
-
-                # --- C. BUILD & SHOW PROMPT ---
                 
-                # Parse ETF Structures for Clean Display
-                clean_etf_structures = []
-                for s in st.session_state.macro_etf_structures:
-                    try:
-                        clean_etf_structures.append(json.loads(s))
-                    except:
-                        clean_etf_structures.append(s) 
+                # DATA READY - Prompt building happens later
+                st.session_state.step1_data_ready = True
+                status.update(label="Data Fetch Complete", state="complete")
+                st.rerun()
 
-                # Construct Structured Debug Object
-                prompt_debug_data = {
-                    "system_role": "You are a Global Macro Strategist. Your goal is to synthesize an OBJECTIVE 'Market Narrative' (The Story) based on the evidence. Do not force a bias if the market is mixed.",
-                    "inputs": {
-                         "1_eod_context": eod_card,
-                         "2_indices_structure": clean_etf_structures,
-                         "3_overnight_news": pm_news
-                    },
-                    "task_instructions": [
-                        "Synthesize the 'State of the Market' into a clear Narrative.",
-                        "ASSUME EFFICIENT MARKETS: The news is already priced in. Focus on the *reaction* to the news (e.g. Good news + Drop = Bearish).",
-                        "Analyze the ETF Structure: Are indices confirming a direction or is it mixed/choppy?",
-                        "Identify the dominant story driving price (e.g., Inflation Fear, Tech Earnings, Geopolitics).",
+        # 2. MIDDLE SECTION (Verification & Prompt Construction)
+        if st.session_state.step1_data_ready:
+            
+            # --- SHOW DATA ---
+            st.markdown("### 📋 Step 1a Verification: Data")
+            
+            # Display Helper (Summary)
+            st.info(f"Indices Scanned: {len(st.session_state.macro_index_data)}")
+
+            st.dataframe(
+                pd.DataFrame(st.session_state.macro_index_data),
+                width="stretch"
+            )
+
+            # --- DYNAMIC PROMPT CONSTRUCTION (Step 1b Logic) ---
+            # Reconstruct prompt every rerun using current News Input
+            
+            # Parse ETF Structures
+            clean_etf_structures = []
+            for s in st.session_state.macro_etf_structures:
+                try:
+                    clean_etf_structures.append(json.loads(s))
+                except:
+                    clean_etf_structures.append(s) 
+
+            # Construct Structured Debug Object
+            prompt_debug_data = {
+                "system_role": "You are a Global Macro Strategist. Your goal is to synthesize an OBJECTIVE 'Market Narrative' (The Story) based on the evidence. Do not force a bias if the market is mixed.",
+                "inputs": {
+                        "1_eod_context": st.session_state.glassbox_eod_card,
+                        "2_indices_structure": clean_etf_structures,
+                        "3_overnight_news": pm_news
+                },
+                "task_instructions": [
+                    "Synthesize the 'State of the Market' into a clear Narrative.",
+                    "ASSUME EFFICIENT MARKETS: The news is already priced in. Focus on the *reaction* to the news (e.g. Good news + Drop = Bearish).",
+                    "Analyze the ETF Structure: Are indices confirming a direction or is it mixed/choppy?",
+                    "Identify the dominant story driving price (e.g., Inflation Fear, Tech Earnings, Geopolitics).",
 "Output RAW JSON ONLY. No markdown formatting, no code blocks, no trailing text. Schema: { 'marketNarrative': string, 'marketBias': string, 'sectorRotation': dict, 'marketKeyAction': string }."
-                    ]
-                }
-                st.session_state.glassbox_prompt_structure = prompt_debug_data
+                ]
+            }
+            st.session_state.glassbox_prompt_structure = prompt_debug_data
 
-                status.write("3. Running AI Synthesis...")
-                prompt = f"""
-                [SYSTEM]
-                {prompt_debug_data['system_role']}
-                
-                [INPUTS]
-                1. PREVIOUS CLOSING CONTEXT (EOD): {json.dumps(eod_card)}
-                2. CORE INDICES STRUCTURE (Pre-Market): 
-                   (Analysis of SPY, QQQ, IWM, VIX etc. - Look for Migration & Rejections)
-                   {st.session_state.macro_etf_structures}
-                3. OVERNIGHT NEWS: {pm_news}
-                
-                [TASK]
-                {chr(10).join(['- ' + t for t in prompt_debug_data['task_instructions']])}
-                """
-                st.session_state.glassbox_prompt = prompt 
-                
-                resp, error_msg = call_gemini_with_rotation(prompt, "You are a Macro Strategist.", logger, selected_model, st.session_state.key_manager_instance)
+            prompt = f"""
+            [SYSTEM]
+            {prompt_debug_data['system_role']}
+            
+            [INPUTS]
+            1. PREVIOUS CLOSING CONTEXT (EOD): {json.dumps(st.session_state.glassbox_eod_card)}
+            2. CORE INDICES STRUCTURE (Pre-Market): 
+                (Analysis of SPY, QQQ, IWM, VIX etc. - Look for Migration & Rejections)
+                {st.session_state.macro_etf_structures}
+            3. OVERNIGHT NEWS: {pm_news}
+            
+            [TASK]
+            {chr(10).join(['- ' + t for t in prompt_debug_data['task_instructions']])}
+            """
+            st.session_state.glassbox_prompt = prompt 
+            
+            with st.expander("Review AI Prompt (Copy for Manual Use)", expanded=False):
+                    st.code(st.session_state.glassbox_prompt, language="text")
 
-                if resp:
-                    try:
-                        clean = re.search(r"(\{.*\})", resp, re.DOTALL).group(1)
-                        st.session_state.premarket_economy_card = json.loads(clean)
-                        st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
-                        status.update(label="Macro Context Generated", state="complete")
-                        st.rerun()
-                    except Exception as e:
-                        status.update(label="JSON Parse Error", state="error")
-                        st.error(f"AI Error: {e}")
-                        with st.expander("Diagnostic: Raw AI Output (Failed to Parse)"):
-                            st.code(resp)
-                else:
-                    status.update(label="AI Failed", state="error")
-                    st.error(error_msg)
+            st.divider()
+        
+
+        # --- STEP 1b: AI SYNTHESIS (ALWAYS VISIBLE) ---
+        st.header("Step 1b: AI Synthesis")
+        st.caption("Generate the Market Narrative using the fetched data.")
+        st.write("") # Vertical Spacer
+        
+        # --- ACTION COLUMNS ---
+        c1, c2 = st.columns([1, 1])
+        
+        with c1:
+            st.markdown("#### 🤖 Auto Mode")
+            if st.button("✨ Run Gemini Analysis (Step 1b)", type="primary"):
+                # VALIDATION: Check if Step 1a ran
+                if not st.session_state.step1_data_ready:
+                    st.warning("⚠️ Please run **Step 1a: Fetch Market Data** first.")
+                    st.stop()
+                
+                with st.spinner("Running AI Analysis..."):
+                    resp, error_msg = call_gemini_with_rotation(
+                        st.session_state.glassbox_prompt, 
+                        "You are a Macro Strategist.", 
+                        logger, 
+                        selected_model, 
+                        st.session_state.key_manager_instance
+                    )
+
+                    if resp:
+                        try:
+                            clean = re.search(r"(\{.*\})", resp, re.DOTALL).group(1)
+                            st.session_state.premarket_economy_card = json.loads(clean)
+                            st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
+                            st.success("Macro Context Generated!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"JSON Parse Error: {e}")
+                            with st.expander("Raw Output"):
+                                st.code(resp)
+                    else:
+                        st.error(error_msg)
+
+        with c2:
+            st.markdown("#### 🛠️ Manual Fallback")
+            with st.expander("Paste AI Response (Manual JSON)", expanded=False):
+                manual_json = st.text_area("Paste the JSON output from an external LLM here:", height=200)
+                if st.button("Process Manual JSON"):
+                    if manual_json:
+                        try:
+                            clean = re.search(r"(\{.*\})", manual_json, re.DOTALL).group(1)
+                            st.session_state.premarket_economy_card = json.loads(clean)
+                            st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
+                            st.success("Manual JSON Processed Successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Invalid JSON: {e}")
+                    else:
+                        st.warning("Please paste JSON first.")
+
 
         # 2. Results Display (Vertical Stack)
         if st.session_state.premarket_economy_card:
@@ -892,7 +973,6 @@ def main():
                 etf_placeholder.empty()
                 
                 with st.status(f"Scanning Watchlist Structures ({mode})...", expanded=True) as status:
-                    benchmark_date_str = st.session_state.analysis_date.isoformat()
                     watchlist = fetch_watchlist(turso, logger)
                     # STEP 1: FOCUS ON WATCHLIST (COMPANIES) ONLY
                     # Core ETFs are handled in Step 1 for Macro Context.
@@ -906,7 +986,15 @@ def main():
                         df = None
 
                         # 1. FETCH DATA (ROUTED: LIVE OR DB)
-                        df = get_session_bars_routed(turso, epic, benchmark_date_str, simulation_cutoff_str, mode, logger)
+                        df = get_session_bars_routed(
+                            turso, 
+                            epic, 
+                            benchmark_date_str, 
+                            simulation_cutoff_str, 
+                            mode, 
+                            logger,
+                            db_fallback=st.session_state.get('db_fallback', False)
+                        )
                         
                         # 2. EXTRACT PRICE & TS FROM DF (Avoid separate DB lookup for Live mode)
                         if df is not None and not df.empty:
@@ -997,9 +1085,8 @@ def main():
                 st.warning("⚠️ No watchlist found in DB (table: Stocks). Cannot run scan.")
             else:
                 # 2. Determine Reference Date (Yesterday relative to Analysis Date)
-                # If Analysis Date is 2025-12-03, we need plans from 2025-12-02
-                analysis_dt = st.session_state.analysis_date
-                ref_date_dt = analysis_dt - timedelta(days=1)
+                # If Analysis Date is 2025-12-03, we need plans up to 2025-12-03
+                ref_date_dt = st.session_state.analysis_date
                 ref_date_str = ref_date_dt.strftime('%Y-%m-%d')
                 
                 # 3. Fetch Stored Plans (S/R Levels)
@@ -1031,10 +1118,23 @@ def main():
                         if not s_levels and not r_levels: continue
 
                         # Get Live Price
-                        # Ensure we use the simulation settings
-                        # FIX: Use the local variable strictly passed from sidebar, do not rely on missing session state
-                        sim_cutoff_str = simulation_cutoff_str 
-                        latest_price, _ = get_latest_price_details(turso, ticker, sim_cutoff_str, logger)
+                        # FIX: Use routed fetch to get LIVE price in Live Mode (or DB in Sim/Fallback)
+                        latest_price = None
+                        try:
+                            df_prox = get_session_bars_routed(
+                                turso, 
+                                ticker, 
+                                benchmark_date_str, 
+                                simulation_cutoff_str, 
+                                mode=mode, 
+                                logger=None if mode == "Live" else logger, # Reduce log noise
+                                db_fallback=st.session_state.get('db_fallback', False),
+                                premarket_only=False
+                            )
+                            if df_prox is not None and not df_prox.empty:
+                                latest_price = float(df_prox.iloc[-1]['Close'])
+                        except Exception:
+                            pass
                         
                         if not latest_price: continue
                         

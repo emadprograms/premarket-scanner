@@ -22,7 +22,7 @@ def get_latest_price_details(client, ticker: str, cutoff_str: str, logger: AppLo
         logger.log(f"DB Read Error {ticker}: {e}")
         return None, None
 
-def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger) -> Optional[pd.DataFrame]:
+def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str: str, logger: AppLogger, premarket_only: bool = True) -> Optional[pd.DataFrame]:
     try:
         # We need High/Low/Close for Impact logic. Volume is optional but good to have.
         query = """
@@ -50,9 +50,10 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
         # dt_eastern is the display time (New York)
         df['dt_eastern'] = df['timestamp'].dt.tz_convert(US_EASTERN)
         
-        # Filter for Pre-Market (04:00 - 09:30 ET)
-        time_eastern = df['dt_eastern'].dt.time
-        df = df[time_eastern < MARKET_OPEN_TIME].copy()
+        # Filter for Pre-Market (04:00 - 09:30 ET) - OPTIONAL
+        if premarket_only:
+             time_eastern = df['dt_eastern'].dt.time
+             df = df[time_eastern < MARKET_OPEN_TIME].copy()
 
         for col in ['open', 'high', 'low', 'close']:
             df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -61,6 +62,7 @@ def get_session_bars_from_db(client, epic: str, benchmark_date: str, cutoff_str:
         
         # Normalize columns for the Engine
         df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close'}, inplace=True)
+        df['source'] = 'Turso DB'
         return df.reset_index(drop=True)
     except Exception as e:
         logger.log(f"Data Error ({epic}): {e}")
@@ -118,13 +120,13 @@ def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
         "CL=F": "OIL_CRUDE",
         "EURUSDT": "EURUSD",
         "PAXGUSDT": "GOLD",
-        "QQQ": "QQQ",    # CHANGED: Use actual ETF Epic
-        "SPY": "SPY",    # CHANGED: Use actual ETF Epic
+        "QQQ": "US100",    # CHANGED: Use US100 (Nasdaq CFD) for 24/5 Live Data
+        "SPY": "US500",    # CHANGED: Use US500 (S&P CFD) for 24/5 Live Data
         "^VIX": "VIX",
         "NDAQ": "US100",
         # Major Indices
         "DIA": "US30",
-        "IWM": "IWM",    # CHANGED: Use actual ETF Epic (was RTY)
+        "IWM": "RTY",    # CHANGED: Use RTY (Russell 2000 CFD) for 24/5 Live Data
         "US30": "US30",
         "RTY": "RTY",
         
@@ -135,7 +137,7 @@ def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
         "XLP": "XLP",
         "XLU": "XLUP", # Proxy: UCITS (Active in PM)
         "XLV": "XLVP", # Proxy: UCITS (Active in PM)
-        "SMH": "SOXX", # CHANGED: Proxy (SMH not on Cap, SOXX is)
+        "SMH": "SOXX", # Proxy (SMH not on Cap, SOXX is)
         "TLT": "TLT",
         "UUP": "DXY"   # Proxy: US Dollar Index
     }
@@ -183,6 +185,7 @@ def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: 
     if 'SnapshotTime' in df.columns:
         df.rename(columns={'SnapshotTime': 'timestamp'}, inplace=True)
         
+    df['source'] = 'Capital.com'
     return df
 
 def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: int = 5, mode: str = "Simulation", logger: AppLogger = None) -> Optional[pd.DataFrame]:
@@ -197,6 +200,7 @@ def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: in
         if df is not None:
              # Normalize Capital (Title) to Chart (Lower)
              df.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+             df['source'] = 'Capital.com'
         return df
     
     # --- SIMULATION (DB) LOGIC ---
@@ -226,6 +230,7 @@ def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: in
             return None
             
         df = pd.DataFrame(rs.rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['source'] = 'Turso DB'
         
         # Convert timestamp to datetime objects for Pandas
         df['timestamp'] = pd.to_datetime(df['timestamp'])
@@ -243,15 +248,22 @@ def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: in
         if logger: logger.log(f"Chart History DB Error ({ticker}): {e}")
         return None
 
-def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None) -> Optional[pd.DataFrame]:
+def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None, db_fallback: bool = False, premarket_only: bool = True) -> Optional[pd.DataFrame]:
     """
     Routes data fetching for the Analysis Engine.
     Returns: DataFrame with TITLE CASE columns ['Open', 'Close'...]
     """
     if mode == "Live":
-        return get_live_bars_from_capital(epic, client=client, days=1, logger=logger)
+        df = get_live_bars_from_capital(epic, client=client, days=1, logger=logger)
+        
+        # FALLBACK LOGIC
+        if (df is None or df.empty) and db_fallback:
+             if logger: logger.log(f"⚠️ Live Fetch Failed for {epic}. Attempting DB Fallback...")
+             return get_session_bars_from_db(client, epic, benchmark_date_str, cutoff_str, logger, premarket_only=premarket_only)
+        
+        return df
     else:
-        return get_session_bars_from_db(client, epic, benchmark_date_str, cutoff_str, logger)
+        return get_session_bars_from_db(client, epic, benchmark_date_str, cutoff_str, logger, premarket_only=premarket_only)
 
 def detect_impact_levels(df):
     """

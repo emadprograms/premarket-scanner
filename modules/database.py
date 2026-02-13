@@ -65,7 +65,7 @@ def init_db_schema(client, logger: AppLogger):
     except Exception as e:
         logger.log(f"DB Error: {e}")
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -> str:
     try:
         cutoff_date_part = cutoff_str.split(" ")[0]
@@ -77,7 +77,7 @@ def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -
     except Exception:
         return None
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_eod_economy_card(_client, benchmark_date: str, _logger: AppLogger) -> dict:
     try:
         rs = _client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (benchmark_date,))
@@ -121,7 +121,7 @@ def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tupl
         pass
     return s_levels, r_levels
 
-@st.cache_data(ttl=3600, show_spinner=False)
+# @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date: str, _logger: AppLogger) -> dict:
     # Use ticker_tuple for caching compatibility (lists are unhashable)
     ticker_list = list(ticker_tuple)
@@ -129,25 +129,36 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
     if not ticker_list or not _client:
         return db_data
 
-    query = f"""
-        WITH RankedCards AS (
-            SELECT ticker, company_card_json, date,
-                ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
-            FROM company_cards WHERE date <= ?
-        )
-        SELECT ticker, company_card_json, date FROM RankedCards
-        WHERE rn = 1 AND ticker IN ({','.join(['?'] * len(ticker_list))})
-    """
+    # ROBUST FIX: Fetch the latest plan PER TICKER individually.
+    # This handles cases where some tickers have plans for Today, and others only for Yesterday.
     try:
+        # Use a Window Function (Supported by Turso/Modern SQLite) to find the latest record for EACH ticker.
+        placeholders = ','.join(['?'] * len(ticker_list))
+        query = f"""
+            WITH LatestCards AS (
+                SELECT 
+                    ticker, 
+                    company_card_json, 
+                    date,
+                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                FROM company_cards
+                WHERE date <= ? AND ticker IN ({placeholders})
+            )
+            SELECT ticker, company_card_json, date
+            FROM LatestCards
+            WHERE rn = 1
+        """
         args = [benchmark_date] + ticker_list
         rs = _client.execute(query, args)
+
         for row in rs.rows:
             ticker, card_json_blob, actual_date = row[0], row[1], row[2]
             if not card_json_blob:
                 continue
             s_levels, r_levels = _parse_levels_from_json_blob(card_json_blob, _logger)
             try:
-                briefing_data = json.loads(card_json_blob).get('screener_briefing')
+                card_data = json.loads(card_json_blob)
+                briefing_data = card_data.get('screener_briefing')
                 briefing_text = (
                     json.dumps(briefing_data, indent=2)
                     if isinstance(briefing_data, dict)
@@ -159,14 +170,14 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
                 "screener_briefing_text": briefing_text,
                 "s_levels": s_levels,
                 "r_levels": r_levels,
-                "plan_date": actual_date # NEW FIELD
+                "plan_date": actual_date
             }
         return db_data
     except Exception as e:
-        _logger.log(f"DB Error (EOD Data): {e}")
+        _logger.log(f"DB Error (EOD Data Refactored): {e}")
         return {}
 
-@st.cache_data(ttl=86400, show_spinner=False)
+# @st.cache_data(ttl=86400, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_all_tickers_from_db(_client, _logger: AppLogger) -> list[str]:
     try:
         rs = _client.execute("SELECT user_ticker FROM symbol_map")

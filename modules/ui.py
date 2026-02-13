@@ -36,7 +36,11 @@ def render_mission_config(available_models, formatter=None):
             if logic_mode == "Live":
                 simulation_cutoff_dt = datetime.now(st.session_state.market_timezone)
                 st.caption(f"🟢 **LIVE**: {simulation_cutoff_dt.strftime('%H:%M:%S')} ET")
+                
+                # NEW: Database Fallback Toggle
+                st.session_state.db_fallback = st.toggle("DB Fallback", value=False, help="If Live API fails, try reading from Turso DB.")
             else:
+                st.session_state.db_fallback = False # Reset in Sim Mode
                 # Simulation Mode - Compact Date/Time
                 sc1, sc2 = st.columns(2)
                 with sc1:
