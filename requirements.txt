@@ -11,3 +11,4 @@ toml
 matplotlib
 python-dotenv
 pytz
+watchdog
