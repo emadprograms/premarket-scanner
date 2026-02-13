@@ -955,13 +955,16 @@ def main():
     # TAB 2: STOCK SELECTION (STEP 2)
     # ==============================================================================
     with tab2:
-        # --- SECTION B: STRUCTURE SCANNER (STEP 2a) ---
-        st.header("Step 2a: Structural Scanner")
+        st.header("Step 2: Stock Selection")
+        
+        # UI controls for both
+        prox_col1, prox_col2 = st.columns([2, 1])
+        with prox_col1:
+            scan_threshold = st.slider("Proximity % (Strategic Level Check)", 0.1, 5.0, 2.5)
         
         # Display Table Here
         etf_placeholder = st.empty()
         if st.session_state.glassbox_etf_data:
-             # Format the cutoff time for the column header
             time_label = simulation_cutoff_dt.strftime('%H:%M')
             etf_placeholder.dataframe(
                 pd.DataFrame(st.session_state.glassbox_etf_data), 
@@ -974,232 +977,137 @@ def main():
                         max_value=1, 
                         width="small"
                     ),
-                    "Migration Blocks": st.column_config.NumberColumn("Migration Steps", help="Number of 30m blocks analyzed"),
-                    "Impact Levels": st.column_config.NumberColumn("Impact Zones", help="Number of significant rejection levels found"),
+                    "Migration Blocks": st.column_config.NumberColumn("Migration Steps"),
+                    "Impact Levels": st.column_config.NumberColumn("Impact Zones"),
                 },
             )
         else:
-             etf_placeholder.info("Ready to Scan Watchlist Structures...")
+            etf_placeholder.info("Ready for Unified Selection Scan...")
 
-        if st.button("Run Structure Scanner (Step 2a)", type="secondary"):
+        if st.button("Run Unified Selection Scan (Structure + Proximity)", type="primary"):
             if not st.session_state.premarket_economy_card:
                 st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
             else:
                 st.session_state.glassbox_etf_data = []
-                st.session_state.glassbox_raw_cards = {} # Reset
+                st.session_state.glassbox_raw_cards = {}
+                st.session_state.proximity_scan_results = []
                 etf_placeholder.empty()
-                
-                def process_ticker_parallel(ticker_to_scan):
-                    """Worker function for parallel structure scanning."""
-                    try:
-                        # 1. FETCH DATA (ROUTED: LIVE OR DB)
-                        df = get_session_bars_routed(
-                            turso, 
-                            ticker_to_scan, 
-                            benchmark_date_str, 
-                            simulation_cutoff_str, 
-                            mode, 
-                            logger=None, # Avoid thread noise
-                            db_fallback=st.session_state.get('db_fallback', False)
-                        )
-                        
-                        if df is None or df.empty:
-                            return None
 
-                        latest_row = df.iloc[-1]
-                        l_price = float(latest_row['Close'])
-                        p_ts = latest_row['timestamp'] if 'timestamp' in df.columns else latest_row.get('dt_eastern')
-
-                        # 2. ANALYZE
-                        ref_levels = get_previous_session_stats(turso, ticker_to_scan, benchmark_date_str, logger=None)
-                        card = analyze_market_context(df, ref_levels, ticker=ticker_to_scan)
-                        
-                        # 3. CALCULATE UI DATA
-                        mig_count = len(card.get('value_migration_log', []))
-                        imp_count = len(card.get('key_level_rejections', []))
-                        
-                        freshness_score = 0.0
-                        l_minutes = 0.0
-                        if p_ts:
-                            ts_clean = str(p_ts).replace("Z", "+00:00").replace(" ", "T")
-                            ts_obj = datetime.fromisoformat(ts_clean)
-                            if ts_obj.tzinfo is None: 
-                                ts_obj = pytz_timezone('UTC').localize(ts_obj)
-                            
-                            ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                            l_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
-                            freshness_score = max(0.0, 1.0 - (l_minutes / 60.0))
-
-                        return {
-                            "ticker": ticker_to_scan,
-                            "card": card,
-                            "table_row": {
-                                "Ticker": ticker_to_scan,
-                                "Price": f"${l_price:.2f}",
-                                "Freshness": freshness_score,
-                                "Lag (m)": f"{l_minutes:.1f}" if p_ts else "N/A",
-                                "Audit: Date": f"{p_ts}",
-                                "Migration Blocks": mig_count,
-                                "Impact Levels": imp_count,
-                            }
-                        }
-                    except Exception:
-                        return None
-
-                with st.status(f"Scanning Watchlist Structures ({mode})...", expanded=True) as status:
+                with st.status(f"Running Unified Selection Scan ({mode})...", expanded=True) as status:
+                    # 1. Fetch Watchlist & Strategic Plans
                     watchlist = fetch_watchlist(turso, logger)
                     full_ticker_list = sorted(list(set(watchlist)))
-                    status.write(f"Analyzing {len(full_ticker_list)} assets in parallel...")
-
-                    # Use ThreadPoolExecutor for speed
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                        future_to_ticker = {executor.submit(process_ticker_parallel, t): t for t in full_ticker_list}
-                        
-                        for future in concurrent.futures.as_completed(future_to_ticker):
-                            result = future.result()
-                            if result:
-                                # Update session state in main thread
-                                st.session_state.glassbox_raw_cards[result['ticker']] = result['card']
-                                st.session_state.glassbox_etf_data.append(result['table_row'])
-
-                    status.update(label="✅ Scan Complete!", state="complete")
-                    st.rerun()
                     
-                    status.update(label="Scanning Complete", state="complete")
-        
-        # VISUALIZATION (New Feature)
-        if st.session_state.glassbox_raw_cards:
-            st.markdown("### Market Structure Analysis (Visualized)")
-            with st.expander("🔍 View Company Structure Charts", expanded=True):
-                companies = sorted(list(st.session_state.glassbox_raw_cards.keys()))
-                st.caption(f"Visualizing {len(companies)} Asset Structures:")
-                
-                for tkr in companies:
-                    st.markdown(f"### {tkr}")
-                    card_data = st.session_state.glassbox_raw_cards[tkr]
-                    fig = render_market_structure_chart(card_data)
-                    if fig:
-                        st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning(f"⚠️ Could not render chart for {tkr}. (Data might be insufficient: {card_data})")
-                    st.divider()
-
-        st.divider()
-
-        # --- PROXIMITY SCAN LOGIC (DB-BASED) ---
-        st.header("Step 2b: Proximity Logic")
-        scan_threshold = render_proximity_scan()
-        if scan_threshold:
-            # 1. Determine Watchlist
-            whitelist = fetch_watchlist(turso, logger)
-            if not whitelist:
-                st.warning("⚠️ No watchlist found in DB (table: Stocks). Cannot run scan.")
-            else:
-                # 2. Determine Reference Date (Yesterday relative to Analysis Date)
-                # If Analysis Date is 2025-12-03, we need plans up to 2025-12-03
-                ref_date_dt = st.session_state.analysis_date
-                ref_date_str = ref_date_dt.strftime('%Y-%m-%d')
-                
-                # 3. Fetch Stored Plans (S/R Levels)
-                with st.spinner(f"Searching for Strategic Plans (Target: {ref_date_str})..."):
-                    db_plans = get_eod_card_data_for_screener(turso, tuple(whitelist), ref_date_str, logger)
-                
-                if not db_plans:
-                     st.error(f"❌ No Strategic Plans found in DB (<= {ref_date_str}). Please ensure 'Head Trader' ran recently.")
-                else:
-                    # Identify Actual Dates
-                    found_dates = sorted(list(set(d.get('plan_date', 'Unknown') for d in db_plans.values())))
-                    date_display = ", ".join(found_dates)
-                    st.write(f"🔍 **Loaded Strategic Plans from: {date_display}** ({len(db_plans)} tickers)")
-                    def process_proximity_parallel(ticker_to_scan):
-                        """Worker for Proximity Scan."""
+                    ref_date_dt = st.session_state.analysis_date
+                    ref_date_str = ref_date_dt.strftime('%Y-%m-%d')
+                    
+                    status.write("1. Loading Strategic Plans for Proximity Check...")
+                    db_plans = get_eod_card_data_for_screener(turso, tuple(full_ticker_list), ref_date_str, logger)
+                    
+                    def process_ticker_unified(ticker_to_scan):
+                        """Unified worker for both Structure Analysis and Proximity Check."""
                         try:
-                            # 1. Get Plan
-                            plan_data = db_plans.get(ticker_to_scan)
-                            if not plan_data: return None
-                            
-                            s_levels = plan_data.get('s_levels', [])
-                            r_levels = plan_data.get('r_levels', [])
-                            if not s_levels and not r_levels: return None
-
-                            # 2. Get Live Price
-                            df_prox = get_session_bars_routed(
+                            # A. FETCH DATA
+                            df = get_session_bars_routed(
                                 turso, 
                                 ticker_to_scan, 
                                 benchmark_date_str, 
                                 simulation_cutoff_str, 
-                                mode=mode, 
-                                logger=None, 
+                                mode, 
+                                logger=None,
                                 db_fallback=st.session_state.get('db_fallback', False),
-                                premarket_only=False
+                                premarket_only=False # Ensure latest for proximity
                             )
-                            
-                            if df_prox is None or df_prox.empty: return None
-                            cur_price = float(df_prox.iloc[-1]['Close'])
-                            
-                            # 3. Analyze Proximity
-                            local_min_dist = float('inf')
-                            local_best = None
+                            if df is None or df.empty: return None
 
-                            # Check Support
-                            for lvl in s_levels:
-                                dist_pct = abs(cur_price - lvl) / cur_price * 100
-                                if dist_pct <= scan_threshold:
-                                    if dist_pct < local_min_dist:
-                                        local_min_dist = dist_pct
-                                        local_best = {
+                            latest_row = df.iloc[-1]
+                            l_price = float(latest_row['Close'])
+                            p_ts = latest_row['timestamp'] if 'timestamp' in df.columns else latest_row.get('dt_eastern')
+
+                            # B. STRUCTURE ANALYSIS
+                            ref_levels = get_previous_session_stats(turso, ticker_to_scan, benchmark_date_str, logger=None)
+                            card = analyze_market_context(df, ref_levels, ticker=ticker_to_scan)
+                            
+                            mig_count = len(card.get('value_migration_log', []))
+                            imp_count = len(card.get('key_level_rejections', []))
+                            
+                            freshness_score = 0.0
+                            l_minutes = 0.0
+                            if p_ts:
+                                ts_clean = str(p_ts).replace("Z", "+00:00").replace(" ", "T")
+                                ts_obj = datetime.fromisoformat(ts_clean)
+                                if ts_obj.tzinfo is None: ts_obj = pytz_timezone('UTC').localize(ts_obj)
+                                ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
+                                l_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                                freshness_score = max(0.0, 1.0 - (l_minutes / 60.0))
+
+                            # C. PROXIMITY CHECK
+                            prox_alert = None
+                            plan_data = db_plans.get(ticker_to_scan)
+                            if plan_data:
+                                s_levels = plan_data.get('s_levels', [])
+                                r_levels = plan_data.get('r_levels', [])
+                                levels = [(lvl, "SUPPORT") for lvl in s_levels] + [(lvl, "RESISTANCE") for lvl in r_levels]
+                                
+                                best_dist = float('inf')
+                                for lvl, l_type in levels:
+                                    dist_pct = abs(l_price - lvl) / l_price * 100
+                                    if dist_pct <= scan_threshold and dist_pct < best_dist:
+                                        best_dist = dist_pct
+                                        prox_alert = {
                                             "Ticker": ticker_to_scan,
-                                            "Price": f"${cur_price:.2f}",
-                                            "Type": "SUPPORT",
+                                            "Price": f"${l_price:.2f}",
+                                            "Type": l_type,
                                             "Level": lvl,
                                             "Dist %": round(dist_pct, 2),
                                             "Source": f"Plan {plan_data.get('plan_date', ref_date_str)}"
                                         }
 
-                            # Check Resistance
-                            for lvl in r_levels:
-                                dist_pct = abs(cur_price - lvl) / cur_price * 100
-                                if dist_pct <= scan_threshold:
-                                    if dist_pct < local_min_dist:
-                                        local_min_dist = dist_pct
-                                        local_best = {
-                                            "Ticker": ticker_to_scan,
-                                            "Price": f"${cur_price:.2f}",
-                                            "Type": "RESISTANCE",
-                                            "Level": lvl,
-                                            "Dist %": round(dist_pct, 2),
-                                            "Source": f"Plan {plan_data.get('plan_date', ref_date_str)}"
-                                        }
-                            return local_best
-                        except Exception:
-                            return None
+                            return {
+                                "ticker": ticker_to_scan,
+                                "card": card,
+                                "prox_alert": prox_alert,
+                                "table_row": {
+                                    "Ticker": ticker_to_scan,
+                                    "Price": f"${l_price:.2f}",
+                                    "Freshness": freshness_score,
+                                    "Lag (m)": f"{l_minutes:.1f}" if p_ts else "N/A",
+                                    "Audit: Date": f"{p_ts}",
+                                    "Migration Blocks": mig_count,
+                                    "Impact Levels": imp_count,
+                                }
+                            }
+                        except Exception: return None
 
-                    results = []
-                    # 4. Scan in Parallel
-                    with st.status(f"Scanning Watchlist Proximity ({mode})...", expanded=True) as status_prox:
-                        status_prox.write(f"Analyzing {len(whitelist)} tickers against plans...")
-                        
-                        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                            future_prox = {executor.submit(process_proximity_parallel, t): t for t in whitelist}
-                            
-                            for future in concurrent.futures.as_completed(future_prox):
-                                try:
-                                    res_prox = future.result()
-                                    if res_prox:
-                                        results.append(res_prox)
-                                except Exception as exc:
-                                    logger.log(f"{future_prox[future]} Proximity error: {exc}")
-                        
-                        status_prox.update(label="✅ Proximity Scan Complete!", state="complete")
+                    # 2. Parallel Execution
+                    status.write(f"2. Analyzing {len(full_ticker_list)} assets (Parallel)...")
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                        future_to_ticker = {executor.submit(process_ticker_unified, t): t for t in full_ticker_list}
+                        for future in concurrent.futures.as_completed(future_to_ticker):
+                            res = future.result()
+                            if res:
+                                st.session_state.glassbox_raw_cards[res['ticker']] = res['card']
+                                st.session_state.glassbox_etf_data.append(res['table_row'])
+                                if res['prox_alert']:
+                                    st.session_state.proximity_scan_results.append(res['prox_alert'])
 
-                    if results:
-                        st.success(f"🎯 Found {len(results)} Proximity Alerts (vs. Strategic Plan)")
-                        results.sort(key=lambda x: x['Dist %'])
-                        st.session_state.proximity_scan_results = results
-                        st.dataframe(pd.DataFrame(results), width="stretch")
-    
-                    else:
-                        st.info(f"✅ No tickers within {scan_threshold}% of Strategic Levels ({ref_date_str}).") 
+                    status.update(label="✅ Unified Scan Complete!", state="complete")
+                    st.rerun()
+
+        # Proximity Alerts Display (If any)
+        if st.session_state.proximity_scan_results:
+            st.success(f"🎯 Found {len(st.session_state.proximity_scan_results)} Proximity Alerts")
+            st.dataframe(pd.DataFrame(st.session_state.proximity_scan_results).sort_values("Dist %"), width="stretch")
+
+        # VISUALIZATION
+        if st.session_state.glassbox_raw_cards:
+            with st.expander("🔍 View Company Structure Charts", expanded=False):
+                companies = sorted(list(st.session_state.glassbox_raw_cards.keys()))
+                for tkr in companies:
+                    st.markdown(f"### {tkr}")
+                    fig = render_market_structure_chart(st.session_state.glassbox_raw_cards[tkr])
+                    if fig: st.plotly_chart(fig, use_container_width=True)
+                    st.divider() 
 
     # ==============================================================================
     # TAB 3: STOCK RANKING (STEP 3)
