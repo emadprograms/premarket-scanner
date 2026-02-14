@@ -996,44 +996,57 @@ def main():
             if st.button("Generate Detailed Preparation Cards", type="secondary"):
                 if not st.session_state.premarket_economy_card:
                     st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
-                else:
-                    from modules.analysis.detail_engine import update_company_card
-                    macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
-                    deep_results = {}
-                    
-                    def process_deep_dive(ticker):
-                        try:
-                            prev_card_json = "{}"
-                            current_date = st.session_state.analysis_date
-                            json_result = update_company_card(
-                                ticker=ticker,
-                                previous_card_json=prev_card_json,
-                                previous_card_date=str(current_date - timedelta(days=1)),
-                                historical_notes="",
-                                new_eod_summary="",
-                                new_eod_date=current_date,
-                                model_name=selected_model,
-                                market_context_summary=macro_context_summary,
-                                logger=logger
-                            )
-                            return ticker, json_result
-                        except Exception: return ticker, None
+                    st.stop()
+                
+                deep_results = {}
+                
+                # PREPARE THREAD-SAFE OBJECTS
+                km = st.session_state.get('key_manager_instance')
+                db_client = turso # This is the client from the main thread
+                
+                # Worker
+                def process_deep_dive(ticker, key_mgr, client, macro_summary, date_obj, model):
+                    try:
+                        # Fetch Previous Card (if any) from DB
+                        prev_card_json = "{}" # Default
+                        
+                        # Generate
+                        json_result = update_company_card(
+                            ticker=ticker,
+                            previous_card_json=prev_card_json,
+                            previous_card_date=str(date_obj - timedelta(days=1)), # Dummy
+                            historical_notes="", # TODO: Integrate with DB notes
+                            new_eod_summary="", # Not used in pm prompt
+                            new_eod_date=date_obj,
+                            model_name=model,
+                            key_manager=key_mgr,
+                            conn=client,
+                            market_context_summary=macro_summary,
+                            logger=logger
+                        )
+                        return ticker, json_result
+                    except Exception as e:
+                        return ticker, None
 
-                    with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
-                         # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
-                         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                            futures = {executor.submit(process_deep_dive, t): t for t in selected_deep_dive}
-                            for future in concurrent.futures.as_completed(futures):
-                                tkr, res = future.result()
-                                if res:
-                                    deep_results[tkr] = json.loads(res)
-                                    status_deep.write(f"✅ Analyzed {tkr}")
-                                else: status_deep.write(f"❌ Failed {tkr}")
+                # Parallel Run
+                macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
+                with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
+                    # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                        futures = {executor.submit(process_deep_dive, t, km, db_client, macro_context_summary, st.session_state.analysis_date, selected_model): t for t in selected_deep_dive}
+                        
+                        for future in concurrent.futures.as_completed(futures):
+                            tkr, res = future.result()
+                            if res:
+                                deep_results[tkr] = json.loads(res)
+                                status_deep.write(f"✅ Analyzed {tkr}")
+                            else:
+                                status_deep.write(f"❌ Failed {tkr}")
                                 
-                         if deep_results:
-                             st.session_state.detailed_premarket_cards.update(deep_results)
-                             status_deep.update(label="✅ Deep Prep Complete!", state="complete")
-                             st.rerun()
+                    if deep_results:
+                        st.session_state.detailed_premarket_cards.update(deep_results)
+                        status_deep.update(label="✅ Deep Prep Complete!", state="complete")
+                        st.rerun()
 
             # Display Deep Dive Cards
             if st.session_state.detailed_premarket_cards:

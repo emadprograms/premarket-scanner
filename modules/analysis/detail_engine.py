@@ -106,16 +106,13 @@ DEFAULT_ECONOMY_CARD_JSON = """
 """
 
 # --- The Robust API Caller (V8) ---
-def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, max_retries=3) -> str | None:
+def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, key_manager: KeyManager, max_retries=3) -> str | None:
     """
     Calls Gemini API using dynamic model selection and quota management.
-    Uses the KEY_MANAGER instance from streamlit session state if available.
+    Requires an explicit KeyManager instance for thread-safety.
     """
-    # Try to get key manager from session state
-    key_manager = st.session_state.get('key_manager_instance')
-    
     if not key_manager:
-        logger.log("❌ ERROR: KeyManager not initialized in session state.")
+        logger.log("❌ ERROR: KeyManager not provided.")
         return None
     
     # Estimate tokens for quota check
@@ -214,7 +211,9 @@ def update_company_card(
     historical_notes: str, 
     new_eod_summary: str, 
     new_eod_date: date, 
-    model_name:str,
+    model_name: str,
+    key_manager: KeyManager, # Explicit
+    conn, # Explicit connection
     market_context_summary: str, 
     logger: AppLogger = None
 ):
@@ -260,7 +259,6 @@ def update_company_card(
     # --- IMPACT ENGINE INTEGRATION ---
     impact_context_json = "No Data Available"
     
-    conn = get_db_connection()
     if conn:
         try:
             # --- CACHING IMPLEMENTED VIA get_or_compute_context ---
@@ -273,8 +271,6 @@ def update_company_card(
         except Exception as e:
             logger.log(f"⚠️ Impact Engine Failed for {ticker}: {e}")
             impact_context_json = f"Error generating context: {e}"
-        finally:
-            conn.close()
     else:
         logger.log("⚠️ DB Connection Failed - Skipping Impact Engine")
 
@@ -481,7 +477,7 @@ def update_company_card(
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
     
-    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name)
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, key_manager=key_manager)
     if not ai_response_text: 
         logger.log(f"Error: No AI response for {ticker}."); 
         return None
