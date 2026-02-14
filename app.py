@@ -952,113 +952,113 @@ def main():
 
 
     # ==============================================================================
-    # TAB 1b: DETAILED PRE-MARKET CARDS (OPTIONAL)
+    # TAB 2: STOCK SELECTION (STEP 2)
     # ==============================================================================
-    # Helper to check if we have detailed cards
-    if 'detailed_premarket_cards' not in st.session_state:
-        st.session_state.detailed_premarket_cards = {}
-
-    with tab1: # Use same tab or new? Tab 1 is context. User wants between 1 and 2. 
-               # Tabs are currently: tab1 (Context), tab2 (Selection), tab3 (Ranking).
-               # Maybe put it at the BOTTOM of tab1? Or a new tab?
-               # User said "between step 1 and step 2".
-               # Let's put it at the bottom of Tab 1 for now, or make a new top-level Expander in Tab 2?
-               # Let's put it in Tab 2, at the top, as a "Pre-Selection Deep Dive".
-        pass 
-
     with tab2:
-        st.header("Step 1b: Detailed Pre-Market Analysis (Optional)")
+        st.title("Step 2: Selection Hub")
         
-        # 1. Select Tickers
-        if not st.session_state.get('watchlist_cache'):
-             st.session_state.watchlist_cache = fetch_watchlist(turso, logger)
-        
-        candidates = sorted(list(set(st.session_state.watchlist_cache))) if st.session_state.get('watchlist_cache') else []
-        
-        # Default to existing detailed cards keys if any
-        default_sel = list(st.session_state.detailed_premarket_cards.keys()) if st.session_state.detailed_premarket_cards else candidates[:3]
-        
-        selected_deep_dive = st.multiselect("Select Tickers for 'Masterclass' Analysis:", candidates, default=default_sel, key="deep_dive_multiselect")
-        
-        if st.button("Run Detailed Analysis (Masterclass Model)", type="secondary"):
-            if not st.session_state.premarket_economy_card:
-                st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
-            else:
-                from modules.analysis.detail_engine import update_company_card
-                
-                # Prepare Inputs
-                macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
-                # Historical Notes? (Mock for now or fetch from DB if we had them)
-                # We will fetch 'historical_notes' from DB if possible, or leave empty.
-                # For now, empty string.
-                
-                deep_results = {}
-                
-                # Worker
-                def process_deep_dive(ticker):
-                    try:
-                        # Fetch Previous Card (if any) from DB
-                        # We'll use a helper or just pass empty
-                        prev_card_json = "{}" # Default
-                        
-                        # Generate
-                        # We need a date. Step 1 used analysis_date.
-                        current_date = st.session_state.analysis_date
-                        
-                        # We need 'historical_notes'.
-                        # Try fetch from DB 'company_overview' table?
-                        # This system seems to rely on 'glassbox_raw_cards' usually.
-                        
-                        json_result = update_company_card(
-                            ticker=ticker,
-                            previous_card_json=prev_card_json,
-                            previous_card_date=str(current_date - timedelta(days=1)), # Dummy
-                            historical_notes="", # TODO: Integrate with DB notes
-                            new_eod_summary="", # Not used in pm prompt
-                            new_eod_date=current_date,
-                            model_name=selected_model,
-                            market_context_summary=macro_context_summary,
-                            logger=logger
-                        )
-                        return ticker, json_result
-                    except Exception as e:
-                        return ticker, None
+        # A. Workflow Guide
+        with st.container():
+            g1, g2 = st.columns([3, 1])
+            with g1:
+                st.markdown("""
+                ### 🎯 Selection Workflow
+                1. **(Optional) Deep Prep**: Use the "Detailed Analysis" below if you need a fresh strategy card for specific stocks.
+                2. **Execute Scan**: Run the **Unified Scanner** to find tickers near key structural levels from your watchlist.
+                3. **Evaluate Results**: Check the table and proximity alerts to pick your final candidates for Step 3.
+                """)
+            with g2:
+                if st.session_state.detailed_premarket_cards:
+                    st.success(f"✅ {len(st.session_state.detailed_premarket_cards)} Detailed Cards Ready")
+                else:
+                    st.info("ℹ️ No Deep Dive cards generated yet.")
 
-                # Parallel Run
-                with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
-                     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor: # Lower workers for LLM heavy task
-                        futures = {executor.submit(process_deep_dive, t): t for t in selected_deep_dive}
-                        
-                        for future in concurrent.futures.as_completed(futures):
-                            tkr, res = future.result()
-                            if res:
-                                deep_results[tkr] = json.loads(res)
-                                status_deep.write(f"✅ Analyzed {tkr}")
-                            else:
-                                status_deep.write(f"❌ Failed {tkr}")
-                                
-                     if deep_results:
-                         st.session_state.detailed_premarket_cards.update(deep_results)
-                         status_deep.update(label="✅ Deep Dive Complete!", state="complete")
-        
-        # Display Deep Dive Cards
-        if st.session_state.detailed_premarket_cards:
-            with st.expander("📂 View Detailed Pre-Market Cards", expanded=False):
-                for tkr, card in st.session_state.detailed_premarket_cards.items():
-                    st.markdown(f"### {tkr}")
-                    c1, c2 = st.columns(2)
-                    c1.info(f"**Confidence**: {card.get('confidence', 'N/A')}")
-                    c2.code(card.get('screener_briefing', 'N/A'), language='yaml')
-                    st.json(card, expanded=False)
-                    st.divider()
-        
         st.divider()
+
+        # B. Detailed Pre-Market Analysis (Moved to Expander)
+        with st.expander("🧠 Deep Preparation: Masterclass Model (Optional)", expanded=False):
+            st.markdown("#### Detailed Pre-Market Deep Dive")
+            st.caption("Freshly analyze specific tickers using the 4-Participant Trading Model.")
+            
+            # Helper to check if we have detailed cards
+            if 'detailed_premarket_cards' not in st.session_state:
+                st.session_state.detailed_premarket_cards = {}
+
+            # 1. Select Tickers
+            if not st.session_state.get('watchlist_cache'):
+                 st.session_state.watchlist_cache = fetch_watchlist(turso, logger)
+            
+            candidates = sorted(list(set(st.session_state.watchlist_cache))) if st.session_state.get('watchlist_cache') else []
+            default_sel = list(st.session_state.detailed_premarket_cards.keys()) if st.session_state.detailed_premarket_cards else candidates[:3]
+            
+            selected_deep_dive = st.multiselect("Tickers for deep-dive Preparation:", candidates, default=default_sel, key="deep_dive_multiselect")
+            
+            if st.button("Generate Detailed Preparation Cards", type="secondary"):
+                if not st.session_state.premarket_economy_card:
+                    st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
+                else:
+                    from modules.analysis.detail_engine import update_company_card
+                    macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
+                    deep_results = {}
+                    
+                    def process_deep_dive(ticker):
+                        try:
+                            prev_card_json = "{}"
+                            current_date = st.session_state.analysis_date
+                            json_result = update_company_card(
+                                ticker=ticker,
+                                previous_card_json=prev_card_json,
+                                previous_card_date=str(current_date - timedelta(days=1)),
+                                historical_notes="",
+                                new_eod_summary="",
+                                new_eod_date=current_date,
+                                model_name=selected_model,
+                                market_context_summary=macro_context_summary,
+                                logger=logger
+                            )
+                            return ticker, json_result
+                        except Exception: return ticker, None
+
+                    with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
+                         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                            futures = {executor.submit(process_deep_dive, t): t for t in selected_deep_dive}
+                            for future in concurrent.futures.as_completed(futures):
+                                tkr, res = future.result()
+                                if res:
+                                    deep_results[tkr] = json.loads(res)
+                                    status_deep.write(f"✅ Analyzed {tkr}")
+                                else: status_deep.write(f"❌ Failed {tkr}")
+                                
+                         if deep_results:
+                             st.session_state.detailed_premarket_cards.update(deep_results)
+                             status_deep.update(label="✅ Deep Prep Complete!", state="complete")
+                             st.rerun()
+
+            # Display Deep Dive Cards
+            if st.session_state.detailed_premarket_cards:
+                st.markdown("---")
+                for tkr, card in st.session_state.detailed_premarket_cards.items():
+                    with st.container():
+                        tk_c1, tk_c2 = st.columns([1, 2])
+                        tk_c1.markdown(f"#### {tkr}")
+                        tk_c1.info(f"**Confidence**: {card.get('confidence', 'N/A')}")
+                        tk_c2.code(card.get('screener_briefing', 'N/A'), language='yaml')
+                        with st.expander(f"View Full {tkr} Card JSON", expanded=False):
+                            st.json(card)
+                        st.divider()
+
+        st.subheader("Unified Selection Scanner")
+        st.caption("Find stocks from your watchlist nearing strategic levels for today's session.")
         
         # UI controls for both
         prox_col1, prox_col2 = st.columns([2, 1])
         with prox_col1:
             scan_threshold = st.slider("Proximity % (Strategic Level Check)", 0.1, 5.0, 2.5)
-        
+        with prox_col2:
+            st.write("") # Spacer
+            st.write("")
+            run_btn = st.button("Run Unified Selection Scan (Structure + Proximity)", type="primary", use_container_width=True)
+
         # Display Table Here
         etf_placeholder = st.empty()
         if st.session_state.glassbox_etf_data:
@@ -1081,7 +1081,7 @@ def main():
         else:
             etf_placeholder.info("Ready for Unified Selection Scan...")
 
-        if st.button("Run Unified Selection Scan (Structure + Proximity)", type="primary"):
+        if run_btn:
             if not st.session_state.premarket_economy_card:
                 st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
             else:
