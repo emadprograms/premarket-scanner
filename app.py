@@ -12,6 +12,7 @@ from streamlit_lightweight_charts import renderLightweightCharts
 import pandas as pd
 import io
 from modules.analysis.detail_engine import update_company_card # GLOBAL IMPORT for Worker Scope
+from modules.analysis.macro_engine import generate_economy_card_prompt # GLOBAL IMPORT
 
 if 'detailed_premarket_cards' not in st.session_state:
     st.session_state.detailed_premarket_cards = {}
@@ -774,39 +775,17 @@ def main():
                 except:
                     clean_etf_structures.append(s) 
 
-            # Construct Structured Debug Object
-            prompt_debug_data = {
-                "system_role": "You are a Global Macro Strategist. Your goal is to synthesize an OBJECTIVE 'Market Narrative' (The Story) based on the evidence. Do not force a bias if the market is mixed.",
-                "inputs": {
-                        "1_eod_context": st.session_state.glassbox_eod_card,
-                        "2_indices_structure": clean_etf_structures,
-                        "3_overnight_news": pm_news
-                },
-                "task_instructions": [
-                    "Synthesize the 'State of the Market' into a clear Narrative.",
-                    "ASSUME EFFICIENT MARKETS: The news is already priced in. Focus on the *reaction* to the news (e.g. Good news + Drop = Bearish).",
-                    "Analyze the ETF Structure: Are indices confirming a direction or is it mixed/choppy?",
-                    "Identify the dominant story driving price (e.g., Inflation Fear, Tech Earnings, Geopolitics).",
-"Output RAW JSON ONLY. No markdown formatting, no code blocks, no trailing text. Schema: { 'marketNarrative': string, 'marketBias': string, 'sectorRotation': dict, 'marketKeyAction': string }."
-                ]
-            }
-            st.session_state.glassbox_prompt_structure = prompt_debug_data
+            # GENERATE WITH MACRO ENGINE
+            macro_prompt, macro_system = generate_economy_card_prompt(
+                eod_card=st.session_state.glassbox_eod_card,
+                etf_structures=clean_etf_structures,
+                news_input=pm_news,
+                analysis_date_str=benchmark_date_str,
+                logger=logger
+            )
 
-            prompt = f"""
-            [SYSTEM]
-            {prompt_debug_data['system_role']}
-            
-            [INPUTS]
-            1. PREVIOUS CLOSING CONTEXT (EOD): {json.dumps(st.session_state.glassbox_eod_card)}
-            2. CORE INDICES STRUCTURE (Pre-Market): 
-                (Analysis of SPY, QQQ, IWM, VIX etc. - Look for Migration & Rejections)
-                {st.session_state.macro_etf_structures}
-            3. OVERNIGHT NEWS: {pm_news}
-            
-            [TASK]
-            {chr(10).join(['- ' + t for t in prompt_debug_data['task_instructions']])}
-            """
-            st.session_state.glassbox_prompt = prompt 
+            st.session_state.glassbox_prompt = macro_prompt
+            st.session_state.glassbox_prompt_system = macro_system # STORE FOR CALL
             
             with st.expander("Review AI Prompt (Copy for Manual Use)", expanded=False):
                     st.code(st.session_state.glassbox_prompt, language="text")
@@ -833,7 +812,7 @@ def main():
                 with st.spinner("Running AI Analysis..."):
                     resp, error_msg = call_gemini_with_rotation(
                         st.session_state.glassbox_prompt, 
-                        "You are a Macro Strategist.", 
+                        st.session_state.get('glassbox_prompt_system', "You are a Global Macro Strategist."), 
                         logger, 
                         selected_model, 
                         st.session_state.key_manager_instance
@@ -949,7 +928,22 @@ def main():
 
             # Bias as a Metric
             bias = st.session_state.premarket_economy_card.get('marketBias', 'Neutral')
-            st.metric("Market Bias (Technical Label)", bias)
+            
+            # --- MASTERCLASS DETAILS (New) ---
+            mc = st.session_state.premarket_economy_card.get('masterclass', {})
+            if mc:
+                c_conf, c_patt, c_tone = st.columns(3)
+                c_conf.metric("Market Bias", bias, help=mc.get('confidence', ''))
+                c_patt.metric("Pattern", mc.get('technicalStructure', {}).get('pattern', 'N/A'))
+                c_tone.metric("Emotional Tone", mc.get('behavioralSentiment', {}).get('emotionalTone', 'N/A').split(" - ")[0])
+                
+                with st.expander("🔍 Deep Dive: Structural & Behavioral Analysis", expanded=True):
+                    st.markdown(f"**Confidence:** {mc.get('confidence')}")
+                    st.markdown(f"**Outlook:** {mc.get('marketOutlook', {}).get('planName')}")
+                    st.markdown(f"**Micro-Tone:** {mc.get('behavioralSentiment', {}).get('emotionalTone')}")
+                    st.caption(f"Triggers: {mc.get('marketOutlook', {}).get('trigger')}")
+            else:
+                st.metric("Market Bias (Technical Label)", bias)
 
             with st.expander("View Full Context JSON"):
                 st.json(st.session_state.premarket_economy_card)
