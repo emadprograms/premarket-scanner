@@ -1020,7 +1020,8 @@ def main():
                         except Exception: return ticker, None
 
                     with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
-                         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                         # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
+                         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                             futures = {executor.submit(process_deep_dive, t): t for t in selected_deep_dive}
                             for future in concurrent.futures.as_completed(futures):
                                 tkr, res = future.result()
