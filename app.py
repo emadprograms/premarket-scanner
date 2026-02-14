@@ -1038,6 +1038,14 @@ def main():
                 # Worker (PURE CPU/AI - NO DB)
                 def process_deep_dive(ticker, key_mgr, macro_summary, date_obj, model, static_data):
                     import traceback
+                    # NOTE: AppLogger is NOT thread-safe for Strealit rendering. 
+                    # We will use a dummy logger that just prints to console.
+                    class ThreadSafeLogger:
+                        def log(self, msg):
+                            print(f"[Worker-{ticker}] {msg}")
+                    
+                    local_logger = ThreadSafeLogger()
+                    
                     print(f"--- [DEBUG] Worker STARTED for {ticker} ---")
                     try:
                         # Unpack pre-fetched data
@@ -1060,7 +1068,7 @@ def main():
                             key_manager=key_mgr,
                             pre_fetched_context=impact_json, # PASS JSON STRING directly
                             market_context_summary=macro_summary,
-                            logger=logger
+                            logger=local_logger # Use ThreadSafe Version
                         )
                         print(f"--- [DEBUG] Worker FINISHED for {ticker} (Success: {json_result is not None}) ---")
                         return ticker, json_result
@@ -1075,6 +1083,7 @@ def main():
                 with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
                     # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
                     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+                        # Pass a copy of the key manager if it's mutable? It usually is thread-safe for reading.
                         futures = {executor.submit(process_deep_dive, t, km, macro_context_summary, st.session_state.analysis_date, selected_model, pre_fetched_data): t for t in selected_deep_dive}
                         
                         for future in concurrent.futures.as_completed(futures):
