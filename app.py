@@ -1002,11 +1002,23 @@ def main():
                 
                 # PREPARE THREAD-SAFE OBJECTS
                 km = st.session_state.get('key_manager_instance')
-                db_client = turso # This is the client from the main thread
+                
+                # DB Config for Fresh Connections
+                db_url = st.secrets.get("TURSO_DB_URL", "")
+                db_auth = st.secrets.get("TURSO_DB_TOKEN", "")
+                is_local = st.session_state.get('local_mode', False)
                 
                 # Worker
-                def process_deep_dive(ticker, key_mgr, client, macro_summary, date_obj, model):
+                def process_deep_dive(ticker, key_mgr, db_url, db_auth, is_local, macro_summary, date_obj, model):
                     try:
+                        # 1. Create FRESH Thread-Local DB Connection
+                        # Passing the main 'turso' client across threads is unsafe.
+                        from modules.database import get_db_connection
+                        local_client = get_db_connection(db_url, db_auth, local_mode=is_local)
+                        
+                        if not local_client:
+                             return ticker, None
+
                         # Fetch Previous Card (if any) from DB
                         prev_card_json = "{}" # Default
                         
@@ -1020,12 +1032,13 @@ def main():
                             new_eod_date=date_obj,
                             model_name=model,
                             key_manager=key_mgr,
-                            conn=client,
+                            conn=local_client, # Use fresh client
                             market_context_summary=macro_summary,
                             logger=logger
                         )
                         return ticker, json_result
                     except Exception as e:
+                        print(f"Deep Dive Error {ticker}: {e}") # Log to console
                         return ticker, None
 
                 # Parallel Run
@@ -1033,7 +1046,7 @@ def main():
                 with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
                     # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
                     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                        futures = {executor.submit(process_deep_dive, t, km, db_client, macro_context_summary, st.session_state.analysis_date, selected_model): t for t in selected_deep_dive}
+                        futures = {executor.submit(process_deep_dive, t, km, db_url, db_auth, is_local, macro_context_summary, st.session_state.analysis_date, selected_model): t for t in selected_deep_dive}
                         
                         for future in concurrent.futures.as_completed(futures):
                             tkr, res = future.result()
