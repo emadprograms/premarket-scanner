@@ -1003,51 +1003,59 @@ def main():
                 # PREPARE THREAD-SAFE OBJECTS
                 km = st.session_state.get('key_manager_instance')
                 
-                # DB Config for Fresh Connections
-                db_url = st.secrets.get("TURSO_DB_URL", "")
-                db_auth = st.secrets.get("TURSO_DB_TOKEN", "")
-                is_local = st.session_state.get('local_mode', False)
+                # --- PRE-FETCH DATA IN MAIN THREAD (Sequential IO) ---
+                # We fetch all necessary DB data here to avoid DB connections in threads.
+                pre_fetched_data = {}
                 
-                # Worker
-                def process_deep_dive(ticker, key_mgr, db_url, db_auth, is_local, macro_summary, date_obj, model):
-                    try:
-                        # 1. Create FRESH Thread-Local DB Connection
-                        # Passing the main 'turso' client across threads is unsafe.
-                        from modules.database import get_db_connection
-                        local_client = None
+                from modules.analysis.impact_engine import get_or_compute_context
+                
+                with st.status("Fetching Data Context...", expanded=False) as status_io:
+                    for ticker in selected_deep_dive:
+                        status_io.write(f"Fetching context for {ticker}...")
                         try:
-                            # DB is OPTIONAL for Deep Dive (used for Impact Context only)
-                            # If this fails, we should still generate the card.
-                            local_client = get_db_connection(db_url, db_auth, local_mode=is_local)
-                        except Exception as db_e:
-                            print(f"Deep Dive DB Connect Fail {ticker}: {db_e}")
-                            local_client = None
-
-                        # Fetch Previous Card (if any) from DB
-                        prev_card_json = "{}" # Default
+                            # 1. Fetch Impact Context (Price/Levels)
+                            # Using main thread 'turso' client which is safe here
+                            context_card = get_or_compute_context(turso, ticker, str(st.session_state.analysis_date), logger)
+                            impact_json = json.dumps(context_card, indent=2)
+                        except Exception as e:
+                            logger.log(f"Pre-fetch Context Error {ticker}: {e}")
+                            impact_json = json.dumps({"error": str(e), "note": "Pre-fetch failed"})
                         
+                        # 2. Fetch Previous Card (Simulated/Placeholder for now as per original code)
+                        # If we had a DB table for cards, we'd fetch it here.
+                        prev_card_json = "{}" 
+                        
+                        pre_fetched_data[ticker] = {
+                            "impact_context": impact_json,
+                            "previous_card": prev_card_json
+                        }
+                    status_io.update(label="✅ Data Fetched! Starting AI Analysis...", state="complete")
+
+                # Worker (PURE CPU/AI - NO DB)
+                def process_deep_dive(ticker, key_mgr, macro_summary, date_obj, model, static_data):
+                    try:
+                        # Unpack pre-fetched data
+                        data = static_data.get(ticker, {})
+                        impact_json = data.get("impact_context", "{}")
+                        prev_card = data.get("previous_card", "{}")
+
                         # Generate
                         json_result = update_company_card(
                             ticker=ticker,
-                            previous_card_json=prev_card_json,
+                            previous_card_json=prev_card,
                             previous_card_date=str(date_obj - timedelta(days=1)), # Dummy
-                            historical_notes="", # TODO: Integrate with DB notes
-                            new_eod_summary="", # Not used in pm prompt
+                            historical_notes="", 
+                            new_eod_summary="", 
                             new_eod_date=date_obj,
                             model_name=model,
                             key_manager=key_mgr,
-                            conn=local_client, # Can be None
+                            pre_fetched_context=impact_json, # PASS JSON STRING directly
                             market_context_summary=macro_summary,
                             logger=logger
                         )
-                        # Close if we opened it? LocalDBClient doesn't have explicit close on wrapper, 
-                        # but underlying connection closes in execute. 
-                        # libsql sync client might need it? 
-                        # Start simple.
-                        
                         return ticker, json_result
                     except Exception as e:
-                        print(f"Deep Dive FATAL Error {ticker}: {e}") # Log to console
+                        print(f"Deep Dive FATAL Error {ticker}: {e}")
                         return ticker, None
 
                 # Parallel Run
@@ -1055,7 +1063,7 @@ def main():
                 with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
                     # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
                     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-                        futures = {executor.submit(process_deep_dive, t, km, db_url, db_auth, is_local, macro_context_summary, st.session_state.analysis_date, selected_model): t for t in selected_deep_dive}
+                        futures = {executor.submit(process_deep_dive, t, km, macro_context_summary, st.session_state.analysis_date, selected_model, pre_fetched_data): t for t in selected_deep_dive}
                         
                         for future in concurrent.futures.as_completed(futures):
                             tkr, res = future.result()

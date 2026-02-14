@@ -213,7 +213,7 @@ def update_company_card(
     new_eod_date: date, 
     model_name: str,
     key_manager: KeyManager, # Explicit
-    conn, # Explicit connection
+    pre_fetched_context: str, # JSON String passed from main thread
     market_context_summary: str, 
     logger: AppLogger = None
 ):
@@ -256,23 +256,9 @@ def update_company_card(
     
     trade_date_str = new_eod_date.isoformat()
 
-    # --- IMPACT ENGINE INTEGRATION ---
-    impact_context_json = "No Data Available"
-    
-    if conn:
-        try:
-            # --- CACHING IMPLEMENTED VIA get_or_compute_context ---
-            if get_or_compute_context:
-                context_card = get_or_compute_context(conn, ticker, trade_date_str, logger)
-                impact_context_json = json.dumps(context_card, indent=2)
-                logger.log(f"✅ Loaded Impact Context Card for {ticker}")
-            else:
-                 impact_context_json = "Impact logic not linked."
-        except Exception as e:
-            logger.log(f"⚠️ Impact Engine Failed for {ticker}: {e}")
-            impact_context_json = f"Error generating context: {e}"
-    else:
-        logger.log("⚠️ DB Connection Failed - Skipping Impact Engine")
+    # --- IMPACT ENGINE INTEGRATION (Pre-Fetched) ---
+    impact_context_json = pre_fetched_context
+    logger.log(f"✅ Using Pre-Fetched Context for {ticker} (Length: {len(impact_context_json)})")
 
     # --- FINAL Main 'Masterclass' Prompt ---
     prompt = f"""
