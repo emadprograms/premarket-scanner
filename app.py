@@ -11,6 +11,10 @@ import yfinance as yf
 from streamlit_lightweight_charts import renderLightweightCharts
 import pandas as pd
 import io
+from modules.analysis.detail_engine import update_company_card # GLOBAL IMPORT for Worker Scope
+
+if 'detailed_premarket_cards' not in st.session_state:
+    st.session_state.detailed_premarket_cards = {}
 
 st.set_page_config(
     page_title="Context Engine",
