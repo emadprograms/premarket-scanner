@@ -1014,10 +1014,14 @@ def main():
                         # 1. Create FRESH Thread-Local DB Connection
                         # Passing the main 'turso' client across threads is unsafe.
                         from modules.database import get_db_connection
-                        local_client = get_db_connection(db_url, db_auth, local_mode=is_local)
-                        
-                        if not local_client:
-                             return ticker, None
+                        local_client = None
+                        try:
+                            # DB is OPTIONAL for Deep Dive (used for Impact Context only)
+                            # If this fails, we should still generate the card.
+                            local_client = get_db_connection(db_url, db_auth, local_mode=is_local)
+                        except Exception as db_e:
+                            print(f"Deep Dive DB Connect Fail {ticker}: {db_e}")
+                            local_client = None
 
                         # Fetch Previous Card (if any) from DB
                         prev_card_json = "{}" # Default
@@ -1032,13 +1036,18 @@ def main():
                             new_eod_date=date_obj,
                             model_name=model,
                             key_manager=key_mgr,
-                            conn=local_client, # Use fresh client
+                            conn=local_client, # Can be None
                             market_context_summary=macro_summary,
                             logger=logger
                         )
+                        # Close if we opened it? LocalDBClient doesn't have explicit close on wrapper, 
+                        # but underlying connection closes in execute. 
+                        # libsql sync client might need it? 
+                        # Start simple.
+                        
                         return ticker, json_result
                     except Exception as e:
-                        print(f"Deep Dive Error {ticker}: {e}") # Log to console
+                        print(f"Deep Dive FATAL Error {ticker}: {e}") # Log to console
                         return ticker, None
 
                 # Parallel Run
