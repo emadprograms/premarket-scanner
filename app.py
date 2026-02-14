@@ -30,6 +30,108 @@ if 'market_timezone' not in st.session_state:
 # ==============================================================================
 # HELPER: VISUALIZE STRUCTURE FOR USER
 # ==============================================================================
+def escape_markdown(text):
+    """Escapes special Markdown characters in a string for safe rendering."""
+    if not isinstance(text, str):
+        return text
+    # Escape $ and ~
+    return text.replace('$', '\\$').replace('~', '\\~')
+
+# --- ECONOMY CARD (VIEW) ---
+def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="edit_mode_economy"):
+    """
+    Displays the Economy card data in a read-only, formatted Markdown view.
+    Accepts an 'edit_mode_key' to toggle the correct session state variable.
+    """
+    data = card_data
+    with st.expander("Global Economy Card", expanded=True):
+        with st.container():
+            
+            title_col, button_col = st.columns([0.95, 0.05])
+                
+            with title_col:
+                st.markdown(f"**{escape_markdown(data.get('marketNarrative', 'Market Narrative N/A'))}**")
+            
+            with button_col:
+                st.write("")
+                # Use the new edit_mode_key to set the correct session state
+                def _enter_econ_edit_mode():
+                    st.session_state[edit_mode_key] = True
+                    try:
+                        st.rerun()
+                    except Exception:
+                        pass
+
+                st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card", on_click=_enter_econ_edit_mode)
+
+            st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+
+            # Column 1: Key Economic Events and Index Analysis
+            with col1:
+                with st.container():
+                    st.markdown("##### Key Economic Events")
+                    events = data.get("keyEconomicEvents", {})
+                    st.markdown("**Last 24h:**")
+                    st.info(escape_markdown(events.get('last_24h', 'N/A')))
+                    st.markdown("**Next 24h:**")
+                    st.warning(escape_markdown(events.get('next_24h', 'N/A')))
+
+                with st.container():
+                    st.markdown("##### Index Analysis")
+                    indices = data.get("indexAnalysis", {})
+                    # --- REFACTORED: Display the new 'pattern' ---
+                    st.markdown(f"**Pattern:** {escape_markdown(indices.get('pattern', 'N/A'))}")
+                    for index, analysis in indices.items():
+                        if index != 'pattern' and analysis and analysis.strip(): # Don't print pattern twice
+                            st.markdown(f"**{index.replace('_', ' ')}**")
+                            st.write(escape_markdown(analysis))
+                    # --- END REFACTOR ---
+
+            # Column 2: Sector Rotation and Inter-Market Analysis
+            with col2:
+                with st.container():
+                    st.markdown("##### Sector Rotation")
+                    rotation = data.get("sectorRotation", {})
+                    st.markdown(f"**Leading:** {escape_markdown(', '.join(rotation.get('leadingSectors', [])) or 'N/A')}")
+                    st.markdown(f"**Lagging:** {escape_markdown(', '.join(rotation.get('laggingSectors', [])) or 'N/A')}")
+                    st.markdown("**Analysis:**")
+                    st.write(escape_markdown(rotation.get('rotationAnalysis', 'N/A')))
+
+                with st.container():
+                    st.markdown("##### Inter-Market Analysis")
+                    intermarket = data.get("interMarketAnalysis", {})
+                    for asset, analysis in intermarket.items():
+                        if analysis and analysis.strip():
+                            st.markdown(f"**{asset.replace('_', ' ')}**")
+                            st.write(escape_markdown(analysis))
+
+            st.markdown("---")
+            
+            # --- REFACTORED: Display the new 'keyActionLog' ---
+            st.markdown("##### Market Key Action Log")
+            key_log = data.get('keyActionLog', [])
+            if isinstance(key_log, list) and key_log:
+                with st.expander("Show Full Market Action Log..."):
+                    for entry in reversed(key_log): # Show most recent first
+                        if isinstance(entry, dict):
+                            st.markdown(f"**{entry.get('date', 'N/A')}:** {escape_markdown(entry.get('action', 'N/A'))}")
+                        else:
+                            st.text(escape_markdown(entry)) # Fallback for old data
+            elif 'marketKeyAction' in data:
+                 # Fallback for old data models
+                 st.text(escape_markdown(data.get('marketKeyAction', 'N/A')))
+            # --- END REFACTOR ---
+
+            # --- MASTERCLASS DETAILS (Integrated) ---
+            mc = data.get('masterclass', {})
+            if mc:
+                with st.expander("🦅 Masterclass Deep Dive", expanded=False):
+                     st.markdown(f"**Confidence:** {mc.get('confidence')}")
+                     st.markdown(f"**Behavior:** {mc.get('behavioralSentiment', {}).get('emotionalTone')}")
+                     st.code(mc.get('screener_briefing'), language='text')
+
 # ==============================================================================
 # HELPER: VISUALIZE STRUCTURE (PLOTLY - INTERACTIVE)
 # ==============================================================================
@@ -923,27 +1025,8 @@ def main():
             st.subheader("4. The Market Narrative (The Story)")
             
             # Narrative First
-            narrative = st.session_state.premarket_economy_card.get('marketNarrative', 'N/A')
-            st.info(f"**📖 Narrative**: {narrative}")
-
-            # Bias as a Metric
-            bias = st.session_state.premarket_economy_card.get('marketBias', 'Neutral')
-            
-            # --- MASTERCLASS DETAILS (New) ---
-            mc = st.session_state.premarket_economy_card.get('masterclass', {})
-            if mc:
-                c_conf, c_patt, c_tone = st.columns(3)
-                c_conf.metric("Market Bias", bias, help=mc.get('confidence', ''))
-                c_patt.metric("Pattern", mc.get('technicalStructure', {}).get('pattern', 'N/A'))
-                c_tone.metric("Emotional Tone", mc.get('behavioralSentiment', {}).get('emotionalTone', 'N/A').split(" - ")[0])
-                
-                with st.expander("🔍 Deep Dive: Structural & Behavioral Analysis", expanded=True):
-                    st.markdown(f"**Confidence:** {mc.get('confidence')}")
-                    st.markdown(f"**Outlook:** {mc.get('marketOutlook', {}).get('planName')}")
-                    st.markdown(f"**Micro-Tone:** {mc.get('behavioralSentiment', {}).get('emotionalTone')}")
-                    st.caption(f"Triggers: {mc.get('marketOutlook', {}).get('trigger')}")
-            else:
-                st.metric("Market Bias (Technical Label)", bias)
+            # REFACTORED: Use the User's Preferred View Component
+            display_view_economy_card(st.session_state.premarket_economy_card)
 
             with st.expander("View Full Context JSON"):
                 st.json(st.session_state.premarket_economy_card)

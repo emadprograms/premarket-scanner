@@ -110,8 +110,33 @@ def generate_economy_card_prompt(
     Output ONLY a single, valid JSON object in this exact format.
     
     {{
-        "marketNarrative": "Your high-level governing narrative summary.",
+        "marketNarrative": "Your high-level governing narrative summary (Masterclass Synthesis).",
         "marketBias": "Bullish/Bearish/Neutral",
+        "keyEconomicEvents": {{
+             "last_24h": "Summary of key data/earnings from yesterday/overnight.",
+             "next_24h": "Summary of upcoming key data/earnings."
+        }},
+        "indexAnalysis": {{
+            "pattern": "Your Masterclass Structural Narrative (e.g. 'Consolidating above $SPY 500').",
+            "SPY": "Specific analysis of SPY structure.",
+            "QQQ": "Specific analysis of QQQ structure.",
+            "IWM": "Specific analysis of IWM structure.",
+            "VIX": "Specific analysis of VIX structure."
+        }},
+        "sectorRotation": {{
+            "leadingSectors": ["Sector1", "Sector2"],
+            "laggingSectors": ["Sector1", "Sector2"],
+            "rotationAnalysis": "Brief analysis of flows (Defensive vs Cyclical)."
+        }},
+        "interMarketAnalysis": {{
+             "Dollar_DXY": "Trend/Impact analysis.",
+             "Yields_10Y": "Trend/Impact analysis.",
+             "Gold_GLD": "Trend/Impact analysis.",
+             "Crypto_BTC": "Trend/Impact analysis."
+        }},
+        "keyActionLog": [
+            {{ "date": "{analysis_date_str}", "action": "Summary of today's key market action." }}
+        ],
         "masterclass": {{
             "confidence": "Trend_Bias: ... (Story_Confidence: ...) - Reasoning: ...",
             "screener_briefing": "Setup_Bias: ...\\nJustification: ...\\nCatalyst: ...\\nPattern: ...\\n...",
