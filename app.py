@@ -12,7 +12,7 @@ from streamlit_lightweight_charts import renderLightweightCharts
 import pandas as pd
 import io
 from modules.analysis.detail_engine import update_company_card # GLOBAL IMPORT for Worker Scope
-from modules.analysis.macro_engine import generate_economy_card_prompt # GLOBAL IMPORT
+from modules.analysis.macro_engine import update_economy_card # GLOBAL IMPORT
 
 if 'detailed_premarket_cards' not in st.session_state:
     st.session_state.detailed_premarket_cards = {}
@@ -775,27 +775,14 @@ def main():
                 except:
                     clean_etf_structures.append(s) 
 
-            # GENERATE WITH MACRO ENGINE
-            macro_prompt, macro_system = generate_economy_card_prompt(
-                eod_card=st.session_state.glassbox_eod_card,
-                etf_structures=clean_etf_structures,
-                news_input=pm_news,
-                analysis_date_str=benchmark_date_str,
-                logger=logger
-            )
-
-            st.session_state.glassbox_prompt = macro_prompt
-            st.session_state.glassbox_prompt_system = macro_system # STORE FOR CALL
-            
-            with st.expander("Review AI Prompt (Copy for Manual Use)", expanded=False):
-                    st.code(st.session_state.glassbox_prompt, language="text")
+            st.session_state.glassbox_prompt_structure = {} # Disable debug structure as logic is now encapsulated
 
             st.divider()
         
 
         # --- STEP 1b: AI SYNTHESIS (ALWAYS VISIBLE) ---
-        st.header("Step 1b: AI Synthesis")
-        st.caption("Generate the Market Narrative using the fetched data.")
+        st.header("Step 1b: AI Synthesis (Macro Strategist)")
+        st.caption("Generate the Market Narrative using the 'Two-Part Synthesis' Logic.")
         st.write("") # Vertical Spacer
         
         # --- ACTION COLUMNS ---
@@ -803,34 +790,38 @@ def main():
         
         with c1:
             st.markdown("#### 🤖 Auto Mode")
-            if st.button("✨ Run Gemini Analysis (Step 1b)", type="primary"):
+            if st.button("✨ Run Macro Strategist (Step 1b)", type="primary"):
                 # VALIDATION: Check if Step 1a ran
                 if not st.session_state.step1_data_ready:
                     st.warning("⚠️ Please run **Step 1a: Fetch Market Data** first.")
                     st.stop()
                 
-                with st.spinner("Running AI Analysis..."):
-                    resp, error_msg = call_gemini_with_rotation(
-                        st.session_state.glassbox_prompt, 
-                        st.session_state.get('glassbox_prompt_system', "You are a Global Macro Strategist."), 
-                        logger, 
-                        selected_model, 
-                        st.session_state.key_manager_instance
+                with st.spinner("Running AI Analysis (Two-Part Synthesis)..."):
+                    
+                    # CALL MACRO ENGINE (Encapsulated Logic)
+                    json_result = update_economy_card(
+                        previous_economy_card_dict=st.session_state.glassbox_eod_card,
+                        daily_market_news=pm_news,
+                        etf_summaries=clean_etf_structures,
+                        model_name=selected_model,
+                        key_manager=st.session_state.key_manager_instance,
+                        logger=logger,
+                        trade_date_str=benchmark_date_str
                     )
 
-                    if resp:
+                    if json_result:
                         try:
-                            clean = re.search(r"(\{.*\})", resp, re.DOTALL).group(1)
-                            st.session_state.premarket_economy_card = json.loads(clean)
+                            # Parse JSON String from Engine
+                            st.session_state.premarket_economy_card = json.loads(json_result)
                             st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
-                            st.success("Macro Context Generated!")
+                            st.success("Macro Context Generated via Two-Part Synthesis!")
                             st.rerun()
                         except Exception as e:
                             st.error(f"JSON Parse Error: {e}")
                             with st.expander("Raw Output"):
-                                st.code(resp)
+                                st.code(json_result)
                     else:
-                        st.error(error_msg)
+                        st.error("Macro Engine Failed. Check logs.")
 
         with c2:
             st.markdown("#### 🛠️ Manual Fallback")
