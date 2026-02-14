@@ -1033,13 +1033,18 @@ def main():
 
                 # Worker (PURE CPU/AI - NO DB)
                 def process_deep_dive(ticker, key_mgr, macro_summary, date_obj, model, static_data):
+                    import traceback
+                    print(f"--- [DEBUG] Worker STARTED for {ticker} ---")
                     try:
                         # Unpack pre-fetched data
                         data = static_data.get(ticker, {})
                         impact_json = data.get("impact_context", "{}")
                         prev_card = data.get("previous_card", "{}")
+                        
+                        print(f"    [DEBUG] {ticker}: Context Len: {len(impact_json)}, Prev Card Len: {len(prev_card)}")
 
                         # Generate
+                        print(f"    [DEBUG] {ticker}: Calling update_company_card...")
                         json_result = update_company_card(
                             ticker=ticker,
                             previous_card_json=prev_card,
@@ -1053,13 +1058,16 @@ def main():
                             market_context_summary=macro_summary,
                             logger=logger
                         )
+                        print(f"--- [DEBUG] Worker FINISHED for {ticker} (Success: {json_result is not None}) ---")
                         return ticker, json_result
                     except Exception as e:
-                        print(f"Deep Dive FATAL Error {ticker}: {e}")
+                        print(f"!!! [DEBUG] Worker EXCEPTION for {ticker}: {e}")
+                        traceback.print_exc() # FORCE PRINT TO TERMINAL
                         return ticker, None
 
                 # Parallel Run
                 macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
+                print(f"[DEBUG] Starting Parallel Execution. Workers: 20. Tickers: {len(selected_deep_dive)}")
                 with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
                     # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
                     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:

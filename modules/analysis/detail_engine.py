@@ -462,15 +462,25 @@ def update_company_card(
     """
     
     logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
+    print(f"[DEBUG] {ticker}: Prompt Length: {len(prompt)} chars. KeyManager Provided: {key_manager is not None}")
     
     ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, key_manager=key_manager)
+    
     if not ai_response_text: 
+        print(f"[DEBUG] {ticker}: NO AI RESPONSE RECEIVED.")
         logger.log(f"Error: No AI response for {ticker}."); 
         return None
     
+    print(f"[DEBUG] {ticker}: AI Response Received ({len(ai_response_text)} chars). Parsing...")
     logger.log(f"4. Received EOD Card for {ticker}. Parsing & Validating...")
+    
     json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
-    ai_response_text = json_match.group(1) if json_match else ai_response_text.strip()
+    if json_match:
+        print(f"[DEBUG] {ticker}: JSON Code Block Found.")
+        ai_response_text = json_match.group(1)
+    else:
+        print(f"[DEBUG] {ticker}: No JSON Block. Attempting raw parse.")
+        ai_response_text = ai_response_text.strip()
     
     try:
         ai_data = json.loads(ai_response_text)
