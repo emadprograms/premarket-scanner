@@ -952,10 +952,107 @@ def main():
 
 
     # ==============================================================================
-    # TAB 2: STOCK SELECTION (STEP 2)
+    # TAB 1b: DETAILED PRE-MARKET CARDS (OPTIONAL)
     # ==============================================================================
+    # Helper to check if we have detailed cards
+    if 'detailed_premarket_cards' not in st.session_state:
+        st.session_state.detailed_premarket_cards = {}
+
+    with tab1: # Use same tab or new? Tab 1 is context. User wants between 1 and 2. 
+               # Tabs are currently: tab1 (Context), tab2 (Selection), tab3 (Ranking).
+               # Maybe put it at the BOTTOM of tab1? Or a new tab?
+               # User said "between step 1 and step 2".
+               # Let's put it at the bottom of Tab 1 for now, or make a new top-level Expander in Tab 2?
+               # Let's put it in Tab 2, at the top, as a "Pre-Selection Deep Dive".
+        pass 
+
     with tab2:
-        st.header("Step 2: Stock Selection")
+        st.header("Step 1b: Detailed Pre-Market Analysis (Optional)")
+        
+        # 1. Select Tickers
+        if not st.session_state.get('watchlist_cache'):
+             st.session_state.watchlist_cache = fetch_watchlist(turso, logger)
+        
+        candidates = sorted(list(set(st.session_state.watchlist_cache))) if st.session_state.get('watchlist_cache') else []
+        
+        # Default to existing detailed cards keys if any
+        default_sel = list(st.session_state.detailed_premarket_cards.keys()) if st.session_state.detailed_premarket_cards else candidates[:3]
+        
+        selected_deep_dive = st.multiselect("Select Tickers for 'Masterclass' Analysis:", candidates, default=default_sel, key="deep_dive_multiselect")
+        
+        if st.button("Run Detailed Analysis (Masterclass Model)", type="secondary"):
+            if not st.session_state.premarket_economy_card:
+                st.warning("⚠️ Please Generate Macro Context (Step 1) first.")
+            else:
+                from modules.analysis.detail_engine import update_company_card
+                
+                # Prepare Inputs
+                macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
+                # Historical Notes? (Mock for now or fetch from DB if we had them)
+                # We will fetch 'historical_notes' from DB if possible, or leave empty.
+                # For now, empty string.
+                
+                deep_results = {}
+                
+                # Worker
+                def process_deep_dive(ticker):
+                    try:
+                        # Fetch Previous Card (if any) from DB
+                        # We'll use a helper or just pass empty
+                        prev_card_json = "{}" # Default
+                        
+                        # Generate
+                        # We need a date. Step 1 used analysis_date.
+                        current_date = st.session_state.analysis_date
+                        
+                        # We need 'historical_notes'.
+                        # Try fetch from DB 'company_overview' table?
+                        # This system seems to rely on 'glassbox_raw_cards' usually.
+                        
+                        json_result = update_company_card(
+                            ticker=ticker,
+                            previous_card_json=prev_card_json,
+                            previous_card_date=str(current_date - timedelta(days=1)), # Dummy
+                            historical_notes="", # TODO: Integrate with DB notes
+                            new_eod_summary="", # Not used in pm prompt
+                            new_eod_date=current_date,
+                            model_name=selected_model,
+                            market_context_summary=macro_context_summary,
+                            logger=logger
+                        )
+                        return ticker, json_result
+                    except Exception as e:
+                        return ticker, None
+
+                # Parallel Run
+                with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
+                     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor: # Lower workers for LLM heavy task
+                        futures = {executor.submit(process_deep_dive, t): t for t in selected_deep_dive}
+                        
+                        for future in concurrent.futures.as_completed(futures):
+                            tkr, res = future.result()
+                            if res:
+                                deep_results[tkr] = json.loads(res)
+                                status_deep.write(f"✅ Analyzed {tkr}")
+                            else:
+                                status_deep.write(f"❌ Failed {tkr}")
+                                
+                     if deep_results:
+                         st.session_state.detailed_premarket_cards.update(deep_results)
+                         status_deep.update(label="✅ Deep Dive Complete!", state="complete")
+        
+        # Display Deep Dive Cards
+        if st.session_state.detailed_premarket_cards:
+            with st.expander("📂 View Detailed Pre-Market Cards", expanded=False):
+                for tkr, card in st.session_state.detailed_premarket_cards.items():
+                    st.markdown(f"### {tkr}")
+                    c1, c2 = st.columns(2)
+                    c1.info(f"**Confidence**: {card.get('confidence', 'N/A')}")
+                    c2.code(card.get('screener_briefing', 'N/A'), language='yaml')
+                    st.json(card, expanded=False)
+                    st.divider()
+        
+        st.divider()
         
         # UI controls for both
         prox_col1, prox_col2 = st.columns([2, 1])
