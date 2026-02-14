@@ -10,6 +10,30 @@ DEFAULT_ECONOMY_CARD_JSON = """
 {
     "marketNarrative": "Initializing Macro Context...",
     "marketBias": "Neutral",
+    "keyEconomicEvents": {
+        "last_24h": "Summary of key past events.",
+        "next_24h": "Summary of key upcoming events."
+    },
+    "sectorRotation": {
+        "leadingSectors": [],
+        "laggingSectors": [],
+        "rotationAnalysis": "Initializing sector flow analysis..."
+    },
+    "indexAnalysis": {
+        "pattern": "None",
+        "SPY": "Initializing levels...",
+        "QQQ": "Initializing levels..."
+    },
+    "interMarketAnalysis": {
+        "bonds": "Analysis of TLT/Yields.",
+        "commodities": "Analysis of Oil/Gold.",
+        "currencies": "Analysis of DXY.",
+        "crypto": "Analysis of BTC."
+    },
+    "marketInternals": {
+        "volatility": "Analysis of VIX and Breadth."
+    },
+    "todaysAction": "Log of today's primary market outcome.",
     "masterclass": {
         "confidence": "Neutral",
         "screener_briefing": "Setup_Bias: Neutral\\nJustification: Initializing.\\nCatalyst: None\\nPattern: None\\nPlan_A: None\\nPlan_A_Level: 0.0\\nPlan_B: None\\nPlan_B_Level: 0.0\\nS_Levels: []\\nR_Levels: []",
@@ -44,99 +68,93 @@ def generate_economy_card_prompt(
     etf_structures: list,
     news_input: str,
     analysis_date_str: str,
-    logger: AppLogger
+    logger: AppLogger,
+    rolling_log: list[dict] = None
 ) -> tuple[str, str]:
     """
     Constructs the 'Masterclass' System Prompt and Main Prompt for the Economy Card.
     Returns: (prompt, system_prompt)
     """
     
-    # --- 1. Construct System Prompt (The Masterclass Philosophy) ---
+    # Defaults
+    if rolling_log is None: rolling_log = []
+
+    # --- 1. Construct System Prompt (The Macro Strategist Persona) ---
     system_prompt = (
-        "You are an expert Global Macro Strategist. Your *only* job is to apply the specific 4-Participant Trading Model to the BROAD MARKET (SPY/QQQ). "
-        "Your logic must *strictly* follow this model. You will be given a 'Masterclass' in the prompt that defines the philosophy. "
-        "Your job has **four** distinct analytical tasks for the MARKET as a whole: "
-        "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` of the indices. "
-        "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define the *key market zones*. "
-        "3. **Calculate `confidence` (The 'Story'):** You MUST combine the lagging 'Trend_Bias' with the 'Story_Confidence' (H/M/L). "
-        "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your analysis to calculate a *new, actionable* 'Setup_Bias' for the general market. "
-        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework."
+        "You are an expert Global Macro Strategist. Your job is to strictly follow a 'Weighted Synthesis' logic to update the Global Economy Card. "
+        "You must adhere to the following 3 Core Rules:\n\n"
+        "**RULE 1: The '60/40 Synthesis' Rule**\n"
+        "   - **60% Weight (Governing Trend):** The existing 'marketBias' from the Previous Card is your anchor. Trends are heavy and hard to turn.\n"
+        "   - **40% Weight (Today's Data):** The combination of News + ETF Levels.\n"
+        "   - **Decision Logic:**\n"
+        "       * *Confirmation:* If Today's Data matches the Trend -> Bias Confidence INCREASES.\n"
+        "       * *Noise:* If Today's Data is weak/mixed -> Bias STAYS THE SAME.\n"
+        "       * *Reversal:* ONLY if Today's Data is High Conviction (e.g., SPY breaks major level + Confirming News) -> Bias FLIPS.\n\n"
+        "**RULE 2: The 'Session Arc' (3-Act Structure)**\n"
+        "   - For `indexAnalysis` and `rotationAnalysis`, analyze the day as a story:\n"
+        "       * *Act I (Pre-Market/Open):* What was the intent? (e.g., 'Gap up on earnings')\n"
+        "       * *Act II (RTH):* Did the market accept or reject that intent? (e.g., 'Sellers rejected the gap')\n"
+        "       * *Act III (Close):* Who won? (e.g., 'Closed near lows, confirming weakness')\n\n"
+        "**RULE 3: Level-Based Proof**\n"
+        "   - You are FORBIDDEN from using generic terms like 'Market was volatile'.\n"
+        "   - You MUST cite specific evidence from the provided 'Core Indices Structure' (e.g., 'SPY failed at $500 VWAP', 'XLK closed below ORL')."
     )
 
     # --- 2. Construct Main Prompt ---
     prompt = f"""
-    [Raw Market Context for Today]
-    (This contains RAW, unstructured news headlines and snippets. Synthesize the "Headwind" or "Tailwind" from this data.)
-    {news_input or "No raw market news was provided."}
-
-    [Previous Closing Context (EOD Card)]
-    (This is the established structure from the previous session.)
+    [1. Previous Closing Context (The Anchor - 60% Weight)]
+    (This is the established narrative. Assume this is TRUE unless proven otherwise by strong new evidence.)
     {json.dumps(eod_card, indent=2)}
+
+    [2. Log of Recent Key Actions (Context)]
+    (Use this to see the 5-10 day 'Arc' and prevent Recency Bias.)
+    {json.dumps(rolling_log, indent=2)}
+
+    [3. Raw Market News (The 'Why' - Narrative Source)]
+    (Synthesize 'Headwinds' vs 'Tailwinds' from this raw text.)
+    {news_input or "No raw market news was provided."}
     
-    [Core Indices Structure (Pre-Market)]
-    (Analysis of SPY, QQQ, IWM, VIX etc. - Look for Migration & Rejections in these pre-market blocks.)
+    [4. Core Indices Structure (The 'How' - 40% Weight - EVIDENCE)]
+    (CRITICAL: Look for Value Migration, Key Level Breaks (VWAP, ORL, ORH), and Trend Alignment in SPY, QQQ, Sectors, Bonds, etc.)
     {json.dumps(etf_structures, indent=2)}
 
     [Your Task for {analysis_date_str}]
-    Your task is to populate the JSON template below. You MUST use the following trading model to generate your analysis.
-
-    --- START MASTERCLASS: THE 4-PARTICIPANT MODEL ---
-    (See 'Company Card' prompt for full 4-Participant definitions. They apply identically here to the Index participants.)
-    * **Committed Buyers/Sellers:** Institutional flows, defining broad support/resistance.
-    * **Desperate Buyers/Sellers:** FOMO/Panic flows, driving volatility and 'Unstable' moves.
-    * **Patterns:** Accumulation, Capitulation, Stable Uptrend, Washout & Reclaim, Chop.
-    * **Story Confidence:** High, Medium, Low based on decisive closes vs. failures.
-
-    --- END MASTERCLASS ---
-
-    **YOUR EXECUTION TASK (Filling the JSON):**
-
-    **1. Calculate `marketNarrative`:** 
-        * Write a clear, high-level summary of the "Governing Narrative" for the entire market based on the News + Price Action.
+    Populate the JSON template below based on the '60/40 Synthesis' of the above data.
     
-    **2. Calculate `marketBias`:**
-        * "Bullish", "Bearish", or "Neutral". This is the high-level label.
-
-    **3. Populate `masterclass` Object (The Deep Dive):**
-        * **`confidence`:** "Trend_Bias: [Bias] (Story_Confidence: [H/M/L]) - Reasoning: [Proof]"
-        * **`basicContext.priceTrend`:** Cumulative trend summary.
-        * **`technicalStructure`:** Define `majorSupport` and `majorResistance` for SPY/QQQ based on the provided index structure.
-        * **`technicalStructure.pattern`:** The structural narrative (e.g. "Consolidating above $SPY 500").
-        * **`behavioralSentiment.emotionalTone`:** The 3-Act Arc (Pre-Market -> RTH -> Post-Market) justification.
-        * **`behavioralSentiment.newsReaction`:** Did the market validate or ignore the bad/good news? (Surprise factor).
-        * **`screener_briefing`:** The Data Packet. Setup_Bias, Justification, Catalyst, Pattern, Plans, Levels.
+    **Special Instructions for 'masterclass' Object:**
+    * **Confidence:** Combine the Lagging Trend with Real-Time 'Story Confidence'.
+    * **Screener Briefing:** Provide the specific TACTICAL setup for the *next* session (e.g. "Plan A: Long if SPY holds $500").
 
     [Output Format Constraint]
     Output ONLY a single, valid JSON object in this exact format.
     
     {{
-        "marketNarrative": "Your high-level governing narrative summary (Masterclass Synthesis).",
-        "marketBias": "Bullish/Bearish/Neutral",
+        "marketNarrative": "The high-level governing narrative summary (The 60/40 Synthesis).",
+        "marketBias": "Bullish / Bearish / Neutral (The Concluded State).",
         "keyEconomicEvents": {{
-             "last_24h": "Summary of key data/earnings from yesterday/overnight.",
-             "next_24h": "Summary of upcoming key data/earnings."
-        }},
-        "indexAnalysis": {{
-            "pattern": "Your Masterclass Structural Narrative (e.g. 'Consolidating above $SPY 500').",
-            "SPY": "Specific analysis of SPY structure.",
-            "QQQ": "Specific analysis of QQQ structure.",
-            "IWM": "Specific analysis of IWM structure.",
-            "VIX": "Specific analysis of VIX structure."
+            "last_24h": "Synthesized summary of past events.",
+            "next_24h": "Synthesized summary of upcoming events."
         }},
         "sectorRotation": {{
-            "leadingSectors": ["Sector1", "Sector2"],
-            "laggingSectors": ["Sector1", "Sector2"],
-            "rotationAnalysis": "Brief analysis of flows (Defensive vs Cyclical)."
+            "leadingSectors": ["XLK", "XLC", "..."],
+            "laggingSectors": ["XLE", "XLU", "..."],
+            "rotationAnalysis": "Analysis of money flow using the 3-Act structure."
+        }},
+        "indexAnalysis": {{
+            "pattern": "Overall pattern (e.g., 'Bearish Engulfing').",
+            "SPY": "Specific analysis of SPY levels (VWAP, POC, ORL).",
+            "QQQ": "Specific analysis of QQQ levels."
         }},
         "interMarketAnalysis": {{
-             "Dollar_DXY": "Trend/Impact analysis.",
-             "Yields_10Y": "Trend/Impact analysis.",
-             "Gold_GLD": "Trend/Impact analysis.",
-             "Crypto_BTC": "Trend/Impact analysis."
+            "bonds": "Analysis of TLT (Rates).",
+            "commodities": "Analysis of Oil/Gold.",
+            "currencies": "Analysis of DXY/UUP.",
+            "crypto": "Analysis of BTC."
         }},
-        "keyActionLog": [
-            {{ "date": "{analysis_date_str}", "action": "Summary of today's key market action." }}
-        ],
+        "marketInternals": {{
+            "volatility": "Analysis of VIX."
+        }},
+        "todaysAction": "A single, loggable sentence summarizing the day's verifyable outcome.",
         "masterclass": {{
             "confidence": "Trend_Bias: ... (Story_Confidence: ...) - Reasoning: ...",
             "screener_briefing": "Setup_Bias: ...\\nJustification: ...\\nCatalyst: ...\\nPattern: ...\\n...",

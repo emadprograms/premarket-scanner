@@ -502,7 +502,7 @@ CORE_INTERMARKET_TICKERS = [
     "BTCUSDT", "CL=F", "DIA", "EURUSDT", "IWM",
     "PAXGUSDT", "QQQ", "SMH", "SPY", "TLT",
     "UUP", "XLC", "XLF", "XLI", "XLP",
-    "XLU", "XLV", "NDAQ", "^VIX"
+    "XLU", "XLV", "XLK", "XLE", "GLD", "NDAQ", "^VIX"
 ]
 
 # ==============================================================================
@@ -877,15 +877,25 @@ def main():
                 except:
                     clean_etf_structures.append(s) 
 
+            # B. GENERATE AI ANALYSIS
+            st.write("2. Synthesizing Macro Narrative (Masterclass Model)...")
+            
+            # Retrieve Rolling Log (Placeholder: getting from EOD Card if available)
+            rolling_log = st.session_state.glassbox_eod_card.get('keyActionLog', []) if st.session_state.glassbox_eod_card else []
+            # Ideally we would query DB for last 5 days here. For now, we start with what we have.
+            
             # GENERATE WITH MACRO ENGINE
             macro_prompt, macro_system = generate_economy_card_prompt(
                 eod_card=st.session_state.glassbox_eod_card,
                 etf_structures=clean_etf_structures,
                 news_input=pm_news,
                 analysis_date_str=benchmark_date_str,
-                logger=logger
+                logger=logger,
+                rolling_log=rolling_log
             )
-
+            
+            selected_model = "gemini-2.0-flash-thinking-exp-01-21" # Use Thinking model for deep logic
+            
             st.session_state.glassbox_prompt = macro_prompt
             st.session_state.glassbox_prompt_system = macro_system # STORE FOR CALL
             
