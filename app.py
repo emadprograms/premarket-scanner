@@ -1096,7 +1096,7 @@ def main():
                 
                 c1, c2 = st.columns(2)
                 with c1:
-                    if st.button("🚀 Proceed Anyway (Use Credits)", type="primary", use_container_width=True):
+                    if st.button("🚀 Proceed Anyway (Use Credits)", type="primary", width="stretch"):
                         with st.status("Manual Synthesis Triggered...", expanded=True) as status_man:
                             eod_card = st.session_state.get('glassbox_eod_card', {})
                             news_in = st.session_state.get('pm_news_input', '')
@@ -1105,7 +1105,7 @@ def main():
 
                 
                 with c2:
-                    if st.button("🔄 Clean & Retry Fetch", type="secondary", use_container_width=True):
+                    if st.button("🔄 Clean & Retry Fetch", type="secondary", width="stretch"):
                         clear_step1_state()
                         st.rerun()
 
@@ -1334,7 +1334,7 @@ def main():
         with prox_col2:
             st.write("") # Spacer
             st.write("")
-            run_btn = st.button("Run Unified Selection Scan (Structure + Proximity)", type="primary", use_container_width=True)
+            run_btn = st.button("Run Unified Selection Scan (Structure + Proximity)", type="primary", width="stretch")
 
         # Display Table Here
         # --- SHOW ACTUAL VS EXPECTED --- (Refined)
@@ -1405,53 +1405,36 @@ def main():
                     status.write("1. Loading Strategic Plans for Proximity Check...")
                     st.session_state.db_plans = get_eod_card_data_for_screener(turso, tuple(full_ticker_list), ref_date_str, u_logger)
                     
-                    # PHASE A: SEQUENTIAL FETCHING
-                    status.write(f"2. Gathering Live Data for {len(full_ticker_list)} assets (Sequential)...")
-                    raw_datafeeds = {}
-                    st.session_state.unified_missing_tickers = []
-                    prog_scan = st.progress(0)
-                    for idx, t in enumerate(full_ticker_list):
-                        status.write(f"   Fetching {t}...")
-                        df = get_session_bars_routed(
-                            turso, 
-                            t, 
-                            benchmark_date_str, 
-                            simulation_cutoff_str, 
-                            mode=mode, 
-                            logger=u_logger, # Use AuditLogger
-                            db_fallback=st.session_state.get('db_fallback', False),
-                            premarket_only=False,
-                            days=2.9, # LOOSENED: Structural Context without clamping
-                            resolution="MINUTE_5"
-                        )
-                        if df is not None and not df.empty:
-                            raw_datafeeds[t] = df
-                        else:
-                            st.session_state.unified_missing_tickers.append(t)
-                            u_logger.log(f"❌ {t}: Failed to fetch data.")
-                        
-                        # Rate Limit: 1s
-                        if mode == "Live" and not st.session_state.get('db_fallback', False):
-                            time.sleep(1)
-                        prog_scan.progress((idx + 1) / len(full_ticker_list))
-
-                    if st.session_state.unified_missing_tickers:
-                        status.write(f"⚠️ **Watchlist Gaps**: {', '.join(st.session_state.unified_missing_tickers)}")
-
-                    # PHASE B: PARALLEL ANALYSIS
-                    
-                    # NARRATIVE PIVOT: Define Session Start (04:00 ET) for Anchor & Delta filtering
+                    # PHASE A+B: UNIFIED PARALLEL PIPELINE
                     u_session_start_dt = simulation_cutoff_dt.replace(hour=4, minute=0, second=0, microsecond=0)
-
-                    def analyze_ticker_unified_worker(ticker_to_scan, df, session_start_dt=None, st_ctx=None):
+                    
+                    def analyze_ticker_unified_worker(ticker_to_scan, session_start_dt=None, st_ctx=None):
                         """
-                        Worker for Step 2: Selection Strategy cards.
+                        Unified Worker: Fetches AND analyzes data in parallel.
                         """
                         if st_ctx:
                             add_script_run_ctx(ctx=st_ctx)
+                        
                         try:
+                            # 1. FETCH DATA
+                            df = get_session_bars_routed(
+                                turso, 
+                                ticker_to_scan, 
+                                benchmark_date_str, 
+                                simulation_cutoff_str, 
+                                mode=mode, 
+                                logger=None, # Don't flood audit log from threads
+                                db_fallback=st.session_state.get('db_fallback', False),
+                                premarket_only=False,
+                                days=2.9,
+                                resolution="MINUTE_5"
+                            )
+                            
+                            if df is None or df.empty:
+                                return {"ticker": ticker_to_scan, "error": "Fetch failed", "missing_data": True}
+
                             from modules.processing import analyze_market_context
-                            # 1. ANALYZE PRICE ACTION (TACTICAL TERRAIN)
+                            # 2. ANALYZE PRICE ACTION
                             latest_row = df.iloc[-1]
                             l_price = float(latest_row['Close'])
                             p_ts = latest_row['timestamp'] if 'timestamp' in df.columns else latest_row.get('dt_eastern')
@@ -1525,24 +1508,39 @@ def main():
                         except Exception as e: 
                             return {"ticker": ticker_to_scan, "error": str(e), "failed_analysis": True}
 
-                    status.write(f"3. Analyzing {len(raw_datafeeds)} assets (Parallel)...")
+                    status.write(f"2. Processing {len(full_ticker_list)} assets (Parallel Fetch + Analysis)...")
+                    prog_scan = st.progress(0)
                     
                     unified_results_list = []
                     st.session_state.unified_analysis_failures = []
+                    st.session_state.unified_missing_tickers = []
+                    
                     ctx = get_script_run_ctx()
                     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                        future_to_ticker = {executor.submit(analyze_ticker_unified_worker, t, df, u_session_start_dt, ctx): t for t, df in raw_datafeeds.items()}
+                        future_to_ticker = {executor.submit(analyze_ticker_unified_worker, t, u_session_start_dt, ctx): t for t in full_ticker_list}
+                        
+                        completed = 0
                         for future in concurrent.futures.as_completed(future_to_ticker):
                             res = future.result()
+                            completed += 1
+                            prog_scan.progress(completed / len(full_ticker_list))
+                            
                             if res:
-                                if res.get('failed_analysis'):
+                                if res.get('missing_data'):
+                                    st.session_state.unified_missing_tickers.append(res['ticker'])
+                                    u_logger.log(f"❌ {res['ticker']}: Failed to fetch data.")
+                                elif res.get('failed_analysis'):
                                     st.session_state.unified_analysis_failures.append(res['ticker'])
+                                    u_logger.log(f"⚠️ {res['ticker']}: Analysis error: {res.get('error')}")
                                 else:
                                     unified_results_list.append(res)
                                     st.session_state.glassbox_raw_cards[res['ticker']] = res['card']
                                     st.session_state.glassbox_etf_data.append(res['table_row'])
                                     if res['prox_alert']:
                                         st.session_state.proximity_scan_results.append(res['prox_alert'])
+
+                    if st.session_state.unified_missing_tickers:
+                        status.write(f"⚠️ **Watchlist Gaps**: {', '.join(st.session_state.unified_missing_tickers)}")
 
                     # Sort for consistent display
                     st.session_state.glassbox_etf_data = sorted(st.session_state.glassbox_etf_data, key=lambda x: x['Ticker'])
@@ -1622,7 +1620,7 @@ def main():
                         "Generated At": gen_at,
                         "Levels": f"S: {len(info.get('s_levels', []))} | R: {len(info.get('r_levels', []))}"
                     })
-                st.dataframe(pd.DataFrame(intel_df_list).sort_values(["Source", "Ticker"], ascending=[False, True]), use_container_width=True)
+                st.dataframe(pd.DataFrame(intel_df_list).sort_values(["Source", "Ticker"], ascending=[False, True]), width="stretch")
 
         # VISUALIZATION
         if st.session_state.glassbox_raw_cards:
@@ -1631,7 +1629,7 @@ def main():
                 for tkr in companies:
                     st.markdown(f"### {tkr}")
                     fig = render_market_structure_chart(st.session_state.glassbox_raw_cards[tkr])
-                    if fig: st.plotly_chart(fig, use_container_width=True)
+                    if fig: st.plotly_chart(fig, width="stretch")
                     st.divider() 
 
     # ==============================================================================
@@ -1696,7 +1694,7 @@ def main():
                         prioritize_rr = st.checkbox("Prioritize High R/R", value=False, help="Rank High Risk/Reward Ratios #1.")
                         dry_run_mode = st.checkbox("📋 Dry Run (Prompt Only)", value=False)
                 
-                submitted = st.form_submit_button("🧠 Run Head Trader Analysis", type="primary", use_container_width=True)
+                submitted = st.form_submit_button("🧠 Run Head Trader Analysis", type="primary", width="stretch")
 
             if submitted:
                 if not selected_tickers:

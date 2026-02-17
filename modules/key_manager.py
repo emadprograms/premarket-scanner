@@ -229,14 +229,38 @@ class KeyManager:
         all_real_keys = list(self.name_to_key.values())
         self.key_to_hash = {k: self._hash_key(k) for k in all_real_keys}
 
-        self.available_keys = deque()
-        self.cooldown_keys = {}
-        self.key_failure_strikes = {}
-        self.dead_keys = set()
-        
-        for key in all_real_keys:
-            self.available_keys.append(key)
-            self.key_failure_strikes[key] = 0
+        # Restore Persistent Health/Cooldowns from DB
+        try:
+            health_rs = self.db_client.execute("SELECT key_hash, strikes, release_time FROM gemini_key_status")
+            now = time.time()
+            hash_to_key = {v: k for k, v in self.key_to_hash.items()}
+            
+            for h_row in health_rs.rows:
+                h_dict = self._row_to_dict(health_rs.columns, h_row)
+                k_hash = h_dict['key_hash']
+                strikes = h_dict['strikes']
+                release_t = h_dict['release_time']
+                
+                real_key = hash_to_key.get(k_hash)
+                if not real_key: continue
+                
+                # Restore Strikes
+                self.key_failure_strikes[real_key] = strikes
+                
+                # Restore Cooldowns
+                if release_t > now:
+                    self.cooldown_keys[real_key] = release_t
+                    if real_key in self.available_keys:
+                        self.available_keys.remove(real_key)
+                
+                # Restore Fatalities
+                if strikes >= self.MAX_STRIKES or strikes >= 999:
+                    self.dead_keys.add(real_key)
+                    if real_key in self.available_keys:
+                        try: self.available_keys.remove(real_key)
+                        except: pass
+        except Exception as e:
+            log.warning(f"KeyManager: Failed to restore persistent health: {e}")
 
         random.shuffle(self.available_keys)
 
