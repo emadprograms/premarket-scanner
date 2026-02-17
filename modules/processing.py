@@ -158,7 +158,7 @@ def ticker_to_epic(ticker: str, client=None, logger=None) -> str:
     # 3. FINAL DEFAULT
     return normalized
 
-def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: AppLogger = None) -> Optional[pd.DataFrame]:
+def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: AppLogger = None, resolution: str = "MINUTE_5") -> Optional[pd.DataFrame]:
     """Fetches data from Capital.com for Live Mode."""
     cst, xst = create_capital_session_v2()
     if not cst or not xst:
@@ -167,13 +167,11 @@ def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: 
         
     epic = ticker_to_epic(ticker, client=client, logger=logger)
     
-    # Capital.com has a 16h limit for 1-min data. 
-    # For a multi-day chart, this might be tricky if they only allow 1-min.
-    # But usually, it works for the immediate past.
+    # Capital.com lookback depends on resolution.
     now_utc = datetime.now(pytz_timezone('UTC'))
     start_utc = now_utc - timedelta(days=days)
     
-    df = fetch_capital_data_range(epic, cst, xst, start_utc, now_utc, logger)
+    df = fetch_capital_data_range(epic, cst, xst, start_utc, now_utc, logger, resolution=resolution)
     if df.empty:
         return None
         
@@ -248,24 +246,24 @@ def get_historical_bars_for_chart(client, ticker: str, cutoff_str: str, days: in
         if logger: logger.log(f"Chart History DB Error ({ticker}): {e}")
         return None
 
-def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None, db_fallback: bool = False, premarket_only: bool = True) -> Optional[pd.DataFrame]:
+def get_session_bars_routed(client, epic: str, benchmark_date_str: str, cutoff_str: str, mode: str = "Simulation", logger: AppLogger = None, db_fallback: bool = False, premarket_only: bool = True, days: int = 3, resolution: str = "MINUTE_5") -> Optional[pd.DataFrame]:
     """
     Routes data fetching for the Analysis Engine.
     Returns: DataFrame with TITLE CASE columns ['Open', 'Close'...]
     """
     if mode == "Live":
-        df = get_live_bars_from_capital(epic, client=client, days=1, logger=logger)
+        df = get_live_bars_from_capital(epic, client=client, days=days, logger=logger, resolution=resolution)
         
         # FALLBACK LOGIC
         if (df is None or df.empty) and db_fallback:
-             if logger: logger.log(f"⚠️ Live Fetch Failed for {epic}. Attempting DB Fallback...")
+             if logger: logger.log(f"⚠️ Live Fetch Failed for {epic} ({resolution}). Attempting DB Fallback...")
              return get_session_bars_from_db(client, epic, benchmark_date_str, cutoff_str, logger, premarket_only=premarket_only)
         
         return df
     else:
         return get_session_bars_from_db(client, epic, benchmark_date_str, cutoff_str, logger, premarket_only=premarket_only)
 
-def detect_impact_levels(df):
+def detect_impact_levels(df, session_start_dt=None):
     """
     Identifies Levels based on IMPACT (Depth & Duration).
     1. Find every pivot.
@@ -449,6 +447,19 @@ def detect_impact_levels(df):
                 break
 
         if not is_duplicate:
+            # Anchor & Delta Filter: Only keep rejections that happened AFTER session start
+            if session_start_dt:
+                # Get the pivot timestamp
+                if 'timestamp' in df.columns:
+                    p_ts = df.loc[candidate['time']]['timestamp']
+                else:
+                    p_ts = candidate['time'] # DateTimeIndex
+                
+                # Ensure p_ts is naive or localized consistently for comparison
+                # (Capital.com data is usually localized in processing.py calls)
+                if p_ts < session_start_dt:
+                    continue
+            
             final_levels.append(candidate)
 
     # Return Top Results (separated)
@@ -481,7 +492,7 @@ def detect_impact_levels(df):
 
     return summary
 
-def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
+def analyze_market_context(df, ref_levels, ticker="UNKNOWN", session_start_dt=None) -> dict:
     """
     The Master Function.
     Returns the JSON Observation Card (Migration Log + Impact Levels).
@@ -569,11 +580,17 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN") -> dict:
                 "price_action_nature": nature_desc
             }
         }
+        # Anchor & Delta Filter: Value Migrations must be from the current session
+        if session_start_dt:
+            if time_window < session_start_dt:
+                block_id += 1
+                continue
+
         value_migration_log.append(log_entry)
         block_id += 1
 
     # 3. IMPACT-BASED REJECTION SYSTEM (Rank 1 Priority)
-    ranked_rejections = detect_impact_levels(df.copy())
+    ranked_rejections = detect_impact_levels(df.copy(), session_start_dt=session_start_dt)
 
     # 4. TIME-BASED ACCEPTANCE (Stacked POCs - Rank 2 Priority)
     all_block_pocs.sort()

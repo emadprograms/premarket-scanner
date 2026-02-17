@@ -84,34 +84,16 @@ class KeyManager:
     MODELS_CONFIG = {
         # --- PAID TIER (Higher Limits) ---
         'gemini-3-pro-paid': {
-            'model_id': 'gemini-3-pro-preview',
+            'model_id': 'gemini-3-pro-preview', 
             'tier': 'paid',
             'display': 'Gemini 3 Pro (Paid)',
-            'limits': {'rpm': 25, 'tpm': 1000000, 'rpd': 250} # RPD ADDED
+            'limits': {'rpm': 25, 'tpm': 1000000, 'rpd': 250}
         },
         'gemini-3-flash-paid': {
-            'model_id': 'gemini-3-flash-preview', 
+            'model_id': 'gemini-3-flash-preview',
             'tier': 'paid',
             'display': 'Gemini 3 Flash (Paid)',
-            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000}
-        },
-        'gemini-2.5-pro-paid': {
-            'model_id': 'gemini-2.5-pro',
-            'tier': 'paid',
-            'display': 'Gemini 2.5 Pro (Paid)',
-            'limits': {'rpm': 150, 'tpm': 2000000, 'rpd': 10000}
-        },
-        'gemini-2.5-flash-paid': {
-            'model_id': 'gemini-2.5-flash',
-            'tier': 'paid',
-            'display': 'Gemini 2.5 Flash (Paid)',
-            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 10000}
-        },
-        'gemini-2.5-flash-lite-paid': {
-            'model_id': 'gemini-2.5-flash-lite',
-            'tier': 'paid',
-            'display': 'Gemini 2.5 Flash Lite (Paid)',
-            'limits': {'rpm': 4000, 'tpm': 4000000, 'rpd': 1000000} # Unlimited effectively
+            'limits': {'rpm': 1000, 'tpm': 4000000, 'rpd': 250}
         },
 
         # --- FREE TIER (Standard Limits) ---
@@ -119,21 +101,21 @@ class KeyManager:
              'model_id': 'gemini-3-flash-preview',
              'tier': 'free',
              'display': 'Gemini 3 Flash (Free)',
-             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000}
+             'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 20}
         },
         'gemini-2.5-flash-free': {
              'model_id': 'gemini-2.5-flash',
              'tier': 'free',
              'display': 'Gemini 2.5 Flash (Free)',
-             'limits': {'rpm': 5, 'tpm': 250000, 'rpd': 10000} 
+             'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 20} 
         },
         'gemini-2.5-flash-lite-free': {
              'model_id': 'gemini-2.5-flash-lite',
              'tier': 'free',
-             'display': 'Gemini 2.5 Flash Lite (Free)',
-             'limits': {'rpm': 10, 'tpm': 250000, 'rpd': 10000}
+             'display': 'Gemini 2.5 Flash-Lite (Free)',
+             'limits': {'rpm': 15, 'tpm': 250000, 'rpd': 20} 
         },
-        
+    
         # --- GEMMA FAMILY ---
         'gemma-3-27b': {
             'model_id': 'gemma-3-27b-it',
@@ -157,8 +139,14 @@ class KeyManager:
         self.db_url = db_url.replace("libsql://", "https://") 
         self.auth_token = auth_token
         
+        is_remote = self.db_url.startswith("https://") or self.db_url.startswith("libsql://")
+        target_name = "Remote Turso" if is_remote else "Local SQLite"
+        
         try:
+            # FORCE REMOTE FOR KEYS (Requirement: API key management must be Turso)
             self.db_client = libsql_client.create_client_sync(url=self.db_url, auth_token=auth_token)
+            log.info(f"✅ KeyManager: Connected to {target_name} ({self.db_url[:30]}...)")
+            
             # Create tables
             self.db_client.execute(CREATE_KEYS_TABLE_SQL)
             self.db_client.execute(CREATE_STATUS_TABLE_SQL)
@@ -261,7 +249,8 @@ class KeyManager:
         if not text: return 0
         return len(text) // 4 + 1
 
-    def get_key(self, config_id: str, estimated_tokens: int = 0) -> tuple[str | None, str | None, float, str | None]:
+    from typing import Tuple, Optional
+    def get_key(self, config_id: str, estimated_tokens: int = 0) -> Tuple[Optional[str], Optional[str], float, Optional[str]]:
         """
         V8: Retrieves an available key for the given config_id.
         

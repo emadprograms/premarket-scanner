@@ -7,13 +7,10 @@ from modules.utils import AppLogger
 
 AVAILABLE_MODELS = [
     "gemini-3-flash-free",
-    "gemini-3-pro-paid",
-    "gemini-3-flash-paid",
-    "gemini-2.5-pro-paid",
-    "gemini-2.5-flash-paid",
-    "gemini-2.5-flash-lite-paid",
     "gemini-2.5-flash-free",
     "gemini-2.5-flash-lite-free",
+    "gemini-3-pro-paid",
+    "gemini-3-flash-paid",
     "gemma-3-27b",
     "gemma-3-12b"
 ]
@@ -24,6 +21,8 @@ API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 DIRECT_API_KEY = None # Hardcoded key removed. Use KeyManager.
 
 
+from typing import Union, Optional
+
 def call_gemini_with_rotation(
     prompt: str,
     system_prompt: str,
@@ -31,47 +30,39 @@ def call_gemini_with_rotation(
     config_id: str,
     key_manager: KeyManager,
     max_retries=1
-) -> tuple[str | None, str | None]:
+) -> tuple[Optional[str], Optional[str]]:
 
     # 1. Estimate Tokens
     estimated_tokens = key_manager.estimate_tokens(prompt + system_prompt)
     logger.log(f"📊 Estimated Tokens: {estimated_tokens}")
 
-    # 2. Get Key from Manager
-    # Use config_id (e.g. 'gemini-3-flash-free') to get the right tier
-    key_name, key_val, wait_time, model_id = key_manager.get_key(config_id, estimated_tokens)
-
-    # 3. Handle Manager Response
-    if wait_time == -1.0:
-        logger.log(f"❌ FATAL: Request too large for {config_id} ({estimated_tokens} tokens).")
-        return None, f"Request exceeds model capacity ({estimated_tokens} tokens)."
-    
-    if wait_time > 0:
-        logger.log(f"⏳ CAPACITY REACHED: Waiting {wait_time:.1f}s for {config_id}...")
-        time.sleep(wait_time)
-        # Re-fetch after wait
-        key_name, key_val, wait_time, model_id = key_manager.get_key(config_id, estimated_tokens)
-        if wait_time != 0:
-            return None, f"Capacity limit. Wait {wait_time:.1f}s."
-
-    if not key_val:
-        logger.log(f"❌ No available keys for {config_id}.")
-        return None, f"No API keys available for {config_id} tier."
-
     # 4. Execute Request
-    gemini_url = f"{API_BASE_URL}/{model_id}:generateContent?key={key_val}"
-
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {"temperature": 0.5, "maxOutputTokens": 8192}
-    }
-    headers = {'Content-Type': 'application/json'}
-
     MAX_ATTEMPTS = 3
+    attempt_logs = []
+
     for attempt in range(MAX_ATTEMPTS):
+        # Re-fetch or fetch key inside loop to allow failover/rotation
+        key_name, key_val, wait_time, model_id = key_manager.get_key(config_id, estimated_tokens)
+
+        if wait_time > 0:
+            logger.log(f"⏳ CAPACITY REACHED (Retry): Waiting {wait_time:.1f}s...")
+            time.sleep(wait_time)
+            key_name, key_val, wait_time, model_id = key_manager.get_key(config_id, estimated_tokens)
+
+        if not key_val:
+            history = "\n".join(attempt_logs)
+            return None, f"No API keys available for {config_id} tier.\n\nAttempt History:\n{history}"
+
+        gemini_url = f"{API_BASE_URL}/{model_id}:generateContent?key={key_val}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "generationConfig": {"temperature": 0.5, "maxOutputTokens": 8192}
+        }
+        headers = {'Content-Type': 'application/json'}
+
         try:
-            logger.log(f"🚀 Sending Request to {model_id} (Attempt {attempt+1}/{MAX_ATTEMPTS})...")
+            logger.log(f"🚀 Sending Request to {model_id} (Attempt {attempt+1}/{MAX_ATTEMPTS}) using {key_name}...")
             start_ts = time.time()
             response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=90)
             elapsed = time.time() - start_ts
@@ -82,7 +73,7 @@ def call_gemini_with_rotation(
                 try:
                     res_json = response.json()
                     text = res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-                    logger.log("✅ REQUEST SUCCESS")
+                    logger.log(f"✅ REQUEST SUCCESS ({key_name})")
                     
                     # REPORT USAGE (V8)
                     total_tokens = res_json.get('usageMetadata', {}).get('totalTokenCount', estimated_tokens)
@@ -94,33 +85,44 @@ def call_gemini_with_rotation(
                     return None, response.text 
             
             elif response.status_code == 429:
-                logger.log(f"⚠️ Rate Limited (429). Strikes added.")
+                err_msg = f"Key '{key_name}': 429 Rate Limit - {response.text}"
+                attempt_logs.append(err_msg)
+                logger.log(f"⚠️ {err_msg}. Rotating...")
                 key_manager.report_failure(key_val)
-                if attempt < MAX_ATTEMPTS - 1:
-                    time.sleep(5)
-                    continue
-                return None, "Rate Limit Exceeded (429)"
+                time.sleep(2)
+                continue
 
-            elif response.status_code in [400, 401, 403]:
-                logger.log(f"⛔ Fatal API Error ({response.status_code}): {response.text}")
+            elif response.status_code in [400, 401, 403, 404]:
+                err_data = response.text
+                err_msg = f"Key '{key_name}': {response.status_code} - {err_data}"
+                attempt_logs.append(err_msg)
+                logger.log(f"⛔ Fatal: {err_msg}")
                 key_manager.report_fatal_error(key_val)
-                return None, f"API Fatal Error {response.status_code}"
+                # 403/404 might be key specific, so we continue to rotate just in case
+                # But usually 400 is bad request. Let's rotate.
+                continue
 
             else:
+                err_msg = f"Key '{key_name}': {response.status_code} - {response.text}"
+                attempt_logs.append(err_msg)
                 logger.log(f"⛔ RAW ERROR: {response.text}")
-                return None, response.text
+                continue 
 
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.ChunkedEncodingError) as e:
-            logger.log(f"⚠️ Network/Connection Error: {e}")
+            err_msg = f"Key '{key_name}': Network Error - {str(e)}"
+            attempt_logs.append(err_msg)
+            logger.log(f"⚠️ {err_msg}")
+            
             if attempt < MAX_ATTEMPTS - 1:
                 wait_time = 2 * (attempt + 1)
                 logger.log(f"⏳ Retrying in {wait_time}s...")
                 time.sleep(wait_time)
-            else:
-                 return None, f"Network Error: {str(e)}"
-        
-        except Exception as e:
-            logger.log(f"💥 Exception: {e}")
-            return None, str(e)
             
-    return None, "Unknown Error"
+        except Exception as e:
+            err_msg = f"Key '{key_name}': Exception - {str(e)}"
+            attempt_logs.append(err_msg)
+            logger.log(f"💥 {err_msg}")
+            
+    final_report = "\n".join(attempt_logs)
+    return None, f"Failed after {MAX_ATTEMPTS} attempts.\n\n📋 **Attempt Log:**\n{final_report}"
+

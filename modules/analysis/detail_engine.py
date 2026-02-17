@@ -105,8 +105,9 @@ DEFAULT_ECONOMY_CARD_JSON = """
 }
 """
 
+from typing import Optional
 # --- The Robust API Caller (V8) ---
-def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, key_manager: KeyManager, max_retries=3) -> str | None:
+def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, key_manager: KeyManager, max_retries=3) -> Optional[str]:
     """
     Calls Gemini API using dynamic model selection and quota management.
     Requires an explicit KeyManager instance for thread-safety.
@@ -221,7 +222,7 @@ def update_company_card(
     Generates an updated company overview card using AI.
     """
     if logger is None:
-        logger = AppLogger()
+        logger = AppLogger(None)
 
     logger.log(f"--- Starting Company Card AI update for {ticker} ---")
 

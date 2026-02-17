@@ -42,18 +42,17 @@ def get_turso_credentials():
             if db_url and auth_token:
                 # Ensure HTTPS
                 return db_url.replace("libsql://", "https://"), auth_token
+            else:
+                if not db_url: st.error("Infisical: DB_URL secret missing.")
+                if not auth_token: st.error("Infisical: AUTH_TOKEN secret missing.")
+                return None, None
+        else:
+            # Note: InfisicalManager now shows its own st.error
+            return None, None
         
-        # 2. Fallback to Local Secrets (Legacy)
-        # Useful if Infisical fails to connect but secrets.toml still has [turso] (during transition)
-        turso_secrets = st.secrets.get("turso", {})
-        raw_db_url = turso_secrets.get("db_url")
-        auth_token = turso_secrets.get("auth_token")
-
-        if raw_db_url:
-            db_url_https = raw_db_url.replace("libsql://", "https://")
-            return db_url_https, auth_token
-            
-        return None, None
+        # Fallback removed - we strictly want Infisical to work.
     except Exception as e:
         st.error(f"[ERROR] Critical Initialization Error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
         return None, None

@@ -62,8 +62,8 @@ def render_mission_config(available_models, formatter=None):
                     st.session_state.trigger_sync = True
             with sc2:
                 import os
-                if os.path.exists("data/local_cache.db"):
-                    mtime = os.path.getmtime("data/local_cache.db")
+                if os.path.exists("data/local_turso.db"):
+                    mtime = os.path.getmtime("data/local_turso.db")
                     last_sync = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
                     st.caption(f"Last Sync: {last_sync}")
                 else:

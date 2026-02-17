@@ -10,11 +10,14 @@ The application is modularized to separate concerns and improve maintainability:
 -   `modules/`: A directory containing the core application logic.
     -   `database.py`: Handles all database interactions.
     -   `gemini.py`: Manages interactions with the Gemini API, including key rotation.
-    -   `processing.py`: Contains functions for data processing and analysis.
+    -   `processing.py`: Contains functions for data processing and technical analysis.
+    -   `analysis/`: Sub-directory for AI-driven analysis engines.
+        -   `macro_engine.py`: Macro context synthesis (The "Master strategist").
+        -   `detail_engine.py`: Single-stock tactical deep-dives (The "Execution analyst").
     -   `ui.py`: Defines the Streamlit user interface components.
     -   `utils.py`: Provides utility functions, such as logging.
-    -   `key_manager.py`: A class for managing API keys.
--   `tests/`: Contains unit tests for the application modules.
+    -   `key_manager.py`: V8 Key management for multi-model rotation.
+-   `tests/`: Contains comprehensive unit tests for all modules.
 
 ## Setup
 

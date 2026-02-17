@@ -1,0 +1,17 @@
+NARRATIVE INTEGRITY MATRIX (10x10)
+========================================
+
+News \ Struct |S01 | S02 | S03 | S04 | S05 | S06 | S07 | S08 | S09 | S10
+-------------------------------------------------------------------------
+1            |  B  |  N  |  B  |  N  |  B  |  B  |  X  |  V  |  B  |  N  |
+2            |  B  |  B  |  B  |  B  |  B  |  B  |  B  |  N  |  B  |  B  |
+3            |  B  |  N  |  B  |  B  |  N  |  N  |  B  |  N  |  N  |  B  |
+4            |  B  |  N  |  B  |  B  |  B  |  B  |  B  |  N  |  B  |  N  |
+5            |  B  |  N  |  B  |  B  |  N  |  B  |  B  |  N  |  B  |  B  |
+6            |  B  |  N  |  B  |  N  |  B  |  B  |  N  |  V  |  B  |  N  |
+7            |  B  |  N  |  B  |  B  |  N  |  B  |  B  |  N  |  B  |  B  |
+8            |  B  |  N  |  B  |  B  |  N  |  B  |  N  |  N  |  B  |  N  |
+9            |  N  |  N  |  B  |  B  |  B  |  B  |  J  |  V  |  B  |  N  |
+10           |  B  |  N  |  B  |  B  |  N  |  B  |  B  |  N  |  B  |  N  |
+
+Legend: B=Bullish, B=Bearish, N=Neutral, V=Volatile, X=Error/Pending

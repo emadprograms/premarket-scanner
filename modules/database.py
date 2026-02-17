@@ -31,7 +31,7 @@ class LocalDBClient:
         return ResultSet(rows, cols)
 
 @st.cache_resource(show_spinner="Connecting to Headquarters...")
-def get_db_connection(db_url: str, auth_token: str, local_mode=False, local_path="data/local_cache.db"):
+def get_db_connection(db_url: str, auth_token: str, local_mode=False, local_path="data/local_turso.db"):
     if local_mode:
         import os
         if not os.path.exists(local_path):
@@ -59,6 +59,16 @@ def init_db_schema(client, logger: AppLogger):
                 economy_card_snapshot TEXT,
                 live_stats_snapshot TEXT,
                 final_briefing TEXT
+            );
+        """)
+        # NEW: Persistent storage for Deep Dive (Live) Cards
+        client.execute("""
+            CREATE TABLE IF NOT EXISTS deep_dive_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                card_json TEXT NOT NULL
             );
         """)
         logger.log("DB: Schema verified.")
@@ -123,58 +133,85 @@ def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tupl
 
 # @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date: str, _logger: AppLogger) -> dict:
-    # Use ticker_tuple for caching compatibility (lists are unhashable)
+    """
+    Tiered Retrieval:
+    1. Check deep_dive_cards (Live) for the latest card on or before benchmark_date.
+    2. Fallback to company_cards (EOD) for missing tickers.
+    """
     ticker_list = list(ticker_tuple)
     db_data = {}
     if not ticker_list or not _client:
         return db_data
 
-    # ROBUST FIX: Fetch the latest plan PER TICKER individually.
-    # This handles cases where some tickers have plans for Today, and others only for Yesterday.
+    # --- STEP 1: LOAD LIVE CARDS (Priority) ---
     try:
-        # Use a Window Function (Supported by Turso/Modern SQLite) to find the latest record for EACH ticker.
         placeholders = ','.join(['?'] * len(ticker_list))
-        query = f"""
-            WITH LatestCards AS (
+        # REMOVED: date <= benchmark_date filter for Live cards to ensure absolute latest interaction is fetched.
+        live_query = f"""
+            WITH LatestLive AS (
                 SELECT 
-                    ticker, 
-                    company_card_json, 
-                    date,
-                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
-                FROM company_cards
-                WHERE date <= ? AND ticker IN ({placeholders})
+                    ticker, card_json, date, timestamp,
+                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY timestamp DESC) as rn
+                FROM deep_dive_cards
+                WHERE ticker IN ({placeholders})
             )
-            SELECT ticker, company_card_json, date
-            FROM LatestCards
-            WHERE rn = 1
+            SELECT ticker, card_json, date, timestamp FROM LatestLive WHERE rn = 1
         """
-        args = [benchmark_date] + ticker_list
-        rs = _client.execute(query, args)
-
-        for row in rs.rows:
-            ticker, card_json_blob, actual_date = row[0], row[1], row[2]
-            if not card_json_blob:
-                continue
-            s_levels, r_levels = _parse_levels_from_json_blob(card_json_blob, _logger)
+        rs_live = _client.execute(live_query, ticker_list) # benchmark_date is NOT used for Live priority
+        
+        for row in rs_live.rows:
+            ticker, card_json, actual_date, ts = row[0], row[1], row[2], row[3]
+            s_levels, r_levels = _parse_levels_from_json_blob(card_json, _logger)
             try:
-                card_data = json.loads(card_json_blob)
+                card_data = json.loads(card_json)
                 briefing_data = card_data.get('screener_briefing')
-                briefing_text = (
-                    json.dumps(briefing_data, indent=2)
-                    if isinstance(briefing_data, dict)
-                    else str(briefing_data)
+                briefing_text = json.dumps(briefing_data, indent=2) if isinstance(briefing_data, dict) else str(briefing_data)
+                
+                # Tag as Live for UI identification
+                db_data[ticker] = {
+                    "screener_briefing_text": briefing_text,
+                    "s_levels": s_levels,
+                    "r_levels": r_levels,
+                    "plan_date": ts[:10], # Show the ACTUAL generation day (Feb 16) NOT the context day (Feb 13)
+                    "timestamp": ts,
+                    "is_live": True
+                }
+            except: pass
+
+        # --- STEP 2: FALLBACK TO EOD (For missing tickers) ---
+        remaining = [t for t in ticker_list if t not in db_data]
+        if remaining:
+            r_placeholders = ','.join(['?'] * len(remaining))
+            eod_query = f"""
+                WITH LatestEOD AS (
+                    SELECT ticker, company_card_json, date,
+                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                    FROM company_cards
+                    WHERE date <= ? AND ticker IN ({r_placeholders})
                 )
-            except Exception:
-                briefing_text = "Error parsing."
-            db_data[ticker] = {
-                "screener_briefing_text": briefing_text,
-                "s_levels": s_levels,
-                "r_levels": r_levels,
-                "plan_date": actual_date
-            }
+                SELECT ticker, company_card_json, date FROM LatestEOD WHERE rn = 1
+            """
+            rs_eod = _client.execute(eod_query, [benchmark_date] + remaining)
+            for row in rs_eod.rows:
+                ticker, card_json, actual_date = row[0], row[1], row[2]
+                s_levels, r_levels = _parse_levels_from_json_blob(card_json, _logger)
+                try:
+                    card_data = json.loads(card_json)
+                    briefing_data = card_data.get('screener_briefing')
+                    briefing_text = json.dumps(briefing_data, indent=2) if isinstance(briefing_data, dict) else str(briefing_data)
+                    db_data[ticker] = {
+                        "screener_briefing_text": briefing_text,
+                        "s_levels": s_levels,
+                        "r_levels": r_levels,
+                        "plan_date": actual_date,
+                        "timestamp": "Historical",
+                        "is_live": False
+                    }
+                except: pass
+
         return db_data
     except Exception as e:
-        _logger.log(f"DB Error (EOD Data Refactored): {e}")
+        _logger.log(f"DB Error (Tiered Fetch): {e}")
         return {}
 
 # @st.cache_data(ttl=86400, show_spinner=False) # REMOVED: User requested no caching in Live Mode
@@ -204,4 +241,20 @@ def save_snapshot(client, news_input: str, eco_card: dict, live_stats: str, brie
         return True
     except Exception as e:
         logger.log(f"DB Error (Save Snapshot): {e}")
+        return False
+
+def save_deep_dive_card(client, ticker: str, date_str: str, card_json: str, logger: AppLogger) -> bool:
+    """Persists a Deep Dive (Live) card to Turso."""
+    if not client or isinstance(client, LocalDBClient):
+        return False
+    try:
+        ts = datetime.now().isoformat()
+        client.execute(
+            "INSERT INTO deep_dive_cards (ticker, date, timestamp, card_json) VALUES (?, ?, ?, ?)",
+            (ticker, date_str, ts, card_json)
+        )
+        logger.log(f"DB: Deep Dive card saved for {ticker}.")
+        return True
+    except Exception as e:
+        logger.log(f"DB Error (Save Deep Dive): {e}")
         return False

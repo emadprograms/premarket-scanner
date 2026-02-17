@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 import pandas as pd
 import json
 import time
@@ -13,9 +14,13 @@ import pandas as pd
 import io
 from modules.analysis.detail_engine import update_company_card # GLOBAL IMPORT for Worker Scope
 from modules.analysis.macro_engine import generate_economy_card_prompt # GLOBAL IMPORT
+from modules.gemini import call_gemini_with_rotation # GLOBAL IMPORT
 
 if 'detailed_premarket_cards' not in st.session_state:
     st.session_state.detailed_premarket_cards = {}
+
+if 'db_plans' not in st.session_state:
+    st.session_state.db_plans = {}
 
 st.set_page_config(
     page_title="Context Engine",
@@ -26,6 +31,20 @@ st.set_page_config(
 # Global Timezone Init
 if 'market_timezone' not in st.session_state:
     st.session_state.market_timezone = pytz_timezone('US/Eastern')
+
+# PERSISTENT GAP TRACKING
+if 'macro_missing_tickers' not in st.session_state:
+    st.session_state.macro_missing_tickers = []
+if 'unified_missing_tickers' not in st.session_state:
+    st.session_state.unified_missing_tickers = []
+if 'macro_analysis_failures' not in st.session_state:
+    st.session_state.macro_analysis_failures = []
+if 'unified_analysis_failures' not in st.session_state:
+    st.session_state.unified_analysis_failures = []
+if 'macro_audit_log' not in st.session_state:
+    st.session_state.macro_audit_log = []
+if 'unified_audit_log' not in st.session_state:
+    st.session_state.unified_audit_log = []
 
 # ==============================================================================
 # HELPER: VISUALIZE STRUCTURE FOR USER
@@ -41,96 +60,84 @@ def escape_markdown(text):
 def display_view_economy_card(card_data, key_prefix="eco_view", edit_mode_key="edit_mode_economy"):
     """
     Displays the Economy card data in a read-only, formatted Markdown view.
-    Accepts an 'edit_mode_key' to toggle the correct session state variable.
+    Renovated for Narrative Nuance (Phase 8a).
     """
     data = card_data
-    with st.expander("Global Economy Card", expanded=True):
-        with st.container():
-            
-            title_col, button_col = st.columns([0.95, 0.05])
-                
-            with title_col:
-                st.markdown(f"**{escape_markdown(data.get('marketNarrative', 'Market Narrative N/A'))}**")
-            
-            with button_col:
-                st.write("")
-                # Use the new edit_mode_key to set the correct session state
-                def _enter_econ_edit_mode():
-                    st.session_state[edit_mode_key] = True
-                    try:
-                        st.rerun()
-                    except Exception:
-                        pass
+    
+    with st.expander("🌍 Global Economy Narrative", expanded=True):
+        # 1. Header & Narrative
+        title_col, button_col = st.columns([0.9, 0.1])
+        with title_col:
+            st.markdown(f"### {escape_markdown(data.get('marketNarrative', 'Initializing Narrative...'))}")
+        
+        with button_col:
+            def _enter_econ_edit_mode():
+                st.session_state[edit_mode_key] = True
+                try: st.rerun()
+                except: pass
+            st.button("✏️", key=f"{key_prefix}_edit_narrative", help="Edit narrative", on_click=_enter_econ_edit_mode)
 
-                st.button("✏️", key=f"{key_prefix}_edit_button", help="Edit economy card", on_click=_enter_econ_edit_mode)
+        st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
+        st.markdown("---")
 
-            st.markdown(f"**Market Bias:** {escape_markdown(data.get('marketBias', 'N/A'))}")
-            st.markdown("---")
-            col1, col2 = st.columns(2)
+        # 2. Key Data Columns
+        col1, col2 = st.columns(2)
 
-            # Column 1: Key Economic Events and Index Analysis
-            with col1:
-                with st.container():
-                    st.markdown("##### Key Economic Events")
-                    events = data.get("keyEconomicEvents", {})
-                    st.markdown("**Last 24h:**")
-                    st.info(escape_markdown(events.get('last_24h', 'N/A')))
-                    st.markdown("**Next 24h:**")
-                    st.warning(escape_markdown(events.get('next_24h', 'N/A')))
+        # Column 1: Key Economic Events and Index Analysis
+        with col1:
+            with st.container():
+                st.markdown("##### Key Economic Events")
+                events = data.get("keyEconomicEvents", {})
+                st.markdown("**Last 24h:**")
+                st.info(escape_markdown(events.get('last_24h', 'N/A')))
+                st.markdown("**Next 24h:**")
+                st.warning(escape_markdown(events.get('next_24h', 'N/A')))
 
-                with st.container():
-                    st.markdown("##### Index Analysis")
-                    indices = data.get("indexAnalysis", {})
-                    # --- REFACTORED: Display the new 'pattern' ---
-                    st.markdown(f"**Pattern:** {escape_markdown(indices.get('pattern', 'N/A'))}")
-                    for index, analysis in indices.items():
-                        if index != 'pattern' and analysis and analysis.strip(): # Don't print pattern twice
-                            st.markdown(f"**{index.replace('_', ' ')}**")
-                            st.write(escape_markdown(analysis))
-                    # --- END REFACTOR ---
+            with st.container():
+                st.markdown("##### Index Analysis")
+                indices = data.get("indexAnalysis", {})
+                st.markdown(f"**Pattern:** {escape_markdown(indices.get('pattern', 'N/A'))}")
+                for index, analysis in indices.items():
+                    if index != 'pattern' and analysis and analysis.strip():
+                        st.markdown(f"**{index}:** {escape_markdown(analysis)}")
 
-            # Column 2: Sector Rotation and Inter-Market Analysis
-            with col2:
-                with st.container():
-                    st.markdown("##### Sector Rotation")
-                    rotation = data.get("sectorRotation", {})
-                    st.markdown(f"**Leading:** {escape_markdown(', '.join(rotation.get('leadingSectors', [])) or 'N/A')}")
-                    st.markdown(f"**Lagging:** {escape_markdown(', '.join(rotation.get('laggingSectors', [])) or 'N/A')}")
-                    st.markdown("**Analysis:**")
-                    st.write(escape_markdown(rotation.get('rotationAnalysis', 'N/A')))
+        # Column 2: Sector Rotation and Inter-Market Analysis
+        with col2:
+            with st.container():
+                st.markdown("##### Sector Rotation")
+                rotation = data.get("sectorRotation", {})
+                st.markdown(f"**Leading:** {escape_markdown(', '.join(rotation.get('leadingSectors', [])) or 'N/A')}")
+                st.markdown(f"**Lagging:** {escape_markdown(', '.join(rotation.get('laggingSectors', [])) or 'N/A')}")
+                st.write(escape_markdown(rotation.get('rotationAnalysis', 'N/A')))
 
-                with st.container():
-                    st.markdown("##### Inter-Market Analysis")
-                    intermarket = data.get("interMarketAnalysis", {})
-                    for asset, analysis in intermarket.items():
-                        if analysis and analysis.strip():
-                            st.markdown(f"**{asset.replace('_', ' ')}**")
-                            st.write(escape_markdown(analysis))
+            with st.container():
+                st.markdown("##### Inter-Market Analysis")
+                intermarket = data.get("interMarketAnalysis", {})
+                for asset, analysis in intermarket.items():
+                    if analysis and analysis.strip():
+                        st.markdown(f"**{asset.replace('_', ' ')}**")
+                        st.write(escape_markdown(analysis))
 
-            st.markdown("---")
-            
-            # --- REFACTORED: Display the new 'keyActionLog' ---
-            st.markdown("##### Market Key Action Log")
-            key_log = data.get('keyActionLog', [])
-            if isinstance(key_log, list) and key_log:
-                with st.expander("Show Full Market Action Log..."):
-                    for entry in reversed(key_log): # Show most recent first
-                        if isinstance(entry, dict):
-                            st.markdown(f"**{entry.get('date', 'N/A')}:** {escape_markdown(entry.get('action', 'N/A'))}")
-                        else:
-                            st.text(escape_markdown(entry)) # Fallback for old data
-            elif 'marketKeyAction' in data:
-                 # Fallback for old data models
-                 st.text(escape_markdown(data.get('marketKeyAction', 'N/A')))
-            # --- END REFACTOR ---
+            with st.container():
+                st.markdown("##### Market Internals")
+                internals = data.get("marketInternals", {})
+                for key, analysis in internals.items():
+                    if analysis and analysis.strip():
+                        st.markdown(f"**{key.capitalize()}:**")
+                        st.write(escape_markdown(analysis))
 
-            # --- MASTERCLASS DETAILS (Integrated) ---
-            mc = data.get('masterclass', {})
-            if mc:
-                with st.expander("🦅 Masterclass Deep Dive", expanded=False):
-                     st.markdown(f"**Confidence:** {mc.get('confidence')}")
-                     st.markdown(f"**Behavior:** {mc.get('behavioralSentiment', {}).get('emotionalTone')}")
-                     st.code(mc.get('screener_briefing'), language='text')
+        st.markdown("---")
+        
+        # 3. Log
+        st.markdown("##### Market Key Action Log")
+        key_log = data.get('keyActionLog', [])
+        if isinstance(key_log, list) and key_log:
+            with st.expander("Show Full Market Action Log..."):
+                for entry in reversed(key_log): 
+                    if isinstance(entry, dict):
+                        st.markdown(f"**{entry.get('date', 'N/A')}:** {escape_markdown(entry.get('action', 'N/A'))}")
+        
+        st.write(f"*Note: {data.get('todaysAction', 'No summary available.')}*")
 
 # ==============================================================================
 # HELPER: VISUALIZE STRUCTURE (PLOTLY - INTERACTIVE)
@@ -500,7 +507,7 @@ st.set_page_config(page_title="Pre-Market Analyst (Context Engine)", layout="wid
 
 CORE_INTERMARKET_TICKERS = [
     "BTCUSDT", "CL=F", "DIA", "EURUSDT", "IWM",
-    "PAXGUSDT", "QQQ", "SMH", "SPY", "TLT",
+    "PAXGUSDT", "SMH", "SPY", "TLT",
     "UUP", "XLC", "XLF", "XLI", "XLP",
     "XLU", "XLV", "XLK", "XLE", "GLD", "NDAQ", "^VIX"
 ]
@@ -515,9 +522,10 @@ try:
         get_db_connection,
         init_db_schema,
         get_latest_economy_card_date,
-        get_latest_economy_card_date,
         get_eod_economy_card,
-        get_eod_card_data_for_screener, # New Import
+        get_eod_card_data_for_screener,
+        save_snapshot,
+        save_deep_dive_card,
     )
     from modules.processing import (
         get_latest_price_details,
@@ -578,8 +586,72 @@ def fetch_watchlist(client, logger):
             return [r[0] for r in rs.rows]
         return []
     except Exception as e:
-        logger.log(f"Watchlist Fetch Error: {e}")
+        if logger: logger.log(f"Watchlist Fetch Error: {e}")
         return []
+
+class AuditLogger:
+    """Helper to capture internal API logs into Streamlit Session State for persistence."""
+    def __init__(self, session_state_key: str):
+        self.key = session_state_key
+        self.error_key = f"{session_state_key}_has_errors"
+        if self.error_key not in st.session_state:
+            st.session_state[self.error_key] = False
+
+    def log(self, message: str):
+        if self.key in st.session_state:
+            st.session_state[self.key].append(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        if "❌" in message or "Worker Error" in message or "Failed" in message:
+            st.session_state[self.error_key] = True
+        print(message)
+
+def run_macro_synthesis(status_obj, eod_card, news_text, bench_date, logger_obj, model_name):
+    """
+    Reusable block for Macro Integrity Lab Gemini Synthesis.
+    """
+    from modules.analysis.macro_engine import generate_economy_card_prompt
+    
+    status_obj.write("4. Synthesizing Macro Narrative (Gemini Masterclass)...")
+    
+    # Retrieve Rolling Log
+    rolling_log = eod_card.get('keyActionLog', []) if eod_card else []
+
+    # Semantic Summarization
+    summarized_context = None
+    if len(rolling_log) > 10:
+        status_obj.write("   📜 Summarizing Long Market History...")
+        summary_prompt = f"Summarize the following market log into a concise 'Macro Arc':\n{json.dumps(rolling_log, indent=2)}"
+        try:
+            sum_resp, _ = call_gemini_with_rotation(summary_prompt, "Summarize History", logger_obj, model_name, st.session_state.key_manager_instance)
+            if sum_resp: summarized_context = sum_resp
+        except: pass
+
+    # Prompt Generation
+    macro_prompt, macro_system = generate_economy_card_prompt(
+        eod_card=eod_card,
+        etf_structures=[json.loads(s) for s in st.session_state.macro_etf_structures],
+        news_input=news_text,
+        analysis_date_str=bench_date,
+        logger=logger_obj,
+        rolling_log=rolling_log,
+        pre_summarized_context=summarized_context
+    )
+    st.session_state.glassbox_prompt = macro_prompt
+    st.session_state.glassbox_prompt_system = macro_system
+
+    # Gemini Call
+    resp, error_msg = call_gemini_with_rotation(macro_prompt, macro_system, logger_obj, model_name, st.session_state.key_manager_instance)
+    if resp:
+        try:
+            clean = re.search(r"(\{.*\})", resp, re.DOTALL).group(1)
+            st.session_state.premarket_economy_card = json.loads(clean)
+            st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
+            st.session_state.app_logger.log("✅ Step 1: Synthesis Complete.")
+            status_obj.update(label="Step 1 Complete!", state="complete")
+        except Exception as e:
+            st.error(f"JSON Parse Error: {e}")
+    else:
+        st.error(error_msg)
+
 
 
 # ==============================================================================
@@ -604,12 +676,28 @@ def main():
     if 'glassbox_raw_cards' not in st.session_state: st.session_state.glassbox_raw_cards = {} # NEW: Store full data for scanning
     if 'glassbox_prompt' not in st.session_state: st.session_state.glassbox_prompt = None
     if 'glassbox_prompt_structure' not in st.session_state: st.session_state.glassbox_prompt_structure = {} # NEW: For Clean JSON Display
-    if 'macro_index_data' not in st.session_state: st.session_state.macro_index_data = [] # NEW: Visual Table
-    if 'macro_etf_structures' not in st.session_state: st.session_state.macro_etf_structures = [] # NEW: AI Data
+    if 'macro_index_data' not in st.session_state:
+        st.session_state.macro_index_data = []
+    if 'macro_raw_dfs' not in st.session_state:
+        st.session_state.macro_raw_dfs = {}
+    if 'macro_context_alerts' not in st.session_state or not isinstance(st.session_state.macro_context_alerts, dict):
+        st.session_state.macro_context_alerts = {}
+    if 'macro_stale_alerts' not in st.session_state:
+        st.session_state.macro_stale_alerts = []
+    if 'macro_etf_structures' not in st.session_state:
+        st.session_state.macro_etf_structures = [] # NEW: AI Data
     if 'utc_timezone' not in st.session_state: st.session_state.utc_timezone = timezone.utc
     if 'local_mode' not in st.session_state: st.session_state.local_mode = False
     if 'trigger_sync' not in st.session_state: st.session_state.trigger_sync = False
     if 'step1_data_ready' not in st.session_state: st.session_state.step1_data_ready = False # NEW: Workflow Split
+    if 'unified_context_alerts' not in st.session_state or not isinstance(st.session_state.unified_context_alerts, dict):
+        st.session_state.unified_context_alerts = {}
+    if 'unified_stale_alerts' not in st.session_state: st.session_state.unified_stale_alerts = []
+    if 'macro_audit_log' not in st.session_state: st.session_state.macro_audit_log = []
+    if 'macro_audit_log_has_errors' not in st.session_state: st.session_state.macro_audit_log_has_errors = False
+    if 'unified_audit_log_has_errors' not in st.session_state: st.session_state.unified_audit_log_has_errors = False
+    if 'macro_missing_tickers' not in st.session_state: st.session_state.macro_missing_tickers = []
+    if 'macro_analysis_failures' not in st.session_state: st.session_state.macro_analysis_failures = []
 
     # --- Startup ---
     startup_logger = st.session_state.app_logger
@@ -620,7 +708,7 @@ def main():
         with st.status("📥 Syncing Database...", expanded=True) as status:
             temp_conn = get_db_connection(db_url, auth_token, local_mode=False)
             if temp_conn:
-                success = sync_turso_to_local(temp_conn, "data/local_cache.db", startup_logger)
+                success = sync_turso_to_local(temp_conn, "data/local_turso.db", startup_logger)
                 if success:
                     status.update(label="✅ Sync Complete!", state="complete")
                     st.toast("Local database updated.")
@@ -638,12 +726,12 @@ def main():
         st.error("DB Connection Failed.")
         st.stop()
 
-    # --- FORCE RELOAD FOR BUGFIX (Stale Object in Session State) ---
-    if 'key_manager_v8_fix' not in st.session_state:
-        # If the object exists from a previous run (where it didn't have V8 methods), delete it.
+    # --- FORCE RELOAD FOR BUGFIX (Gemini 3 Revert) ---
+    if 'key_manager_gemini3_revert' not in st.session_state:
         if 'key_manager_instance' in st.session_state:
-            del st.session_state['key_manager_instance']
-        st.session_state.key_manager_v8_fix = True
+            del st.session_state.key_manager_instance
+            st.toast("♻️ KeyManager Reloaded (Gemini 3.0 Fix)")
+        st.session_state.key_manager_gemini3_revert = True
 
     if 'key_manager_instance' not in st.session_state:
         st.session_state.key_manager_instance = KeyManager(db_url=db_url, auth_token=auth_token)
@@ -703,29 +791,40 @@ def main():
     # ==============================================================================
     with tab1:
         # --- STEP 1a: MACRO DATA FETCH ---
-        st.header("Step 1a: Macro Data Fetch")
+        st.header("Step 1: Macro Context Analysis")
         
         # News Input: Always Visible (User Request)
         st.caption("📝 Overnight News / Context")
         pm_news = st.text_area("Paste relevant headlines/catalysts here...", height=100, key="pm_news_input", label_visibility="collapsed")
         
-        st.markdown("---") # UI CLEANUP: Separator
+        # UI IMPROVEMENT: Information for Step 1 Inputs
+        st.info("ℹ️ **Engine Inputs**: Synthesis uses **Overnight News**, the latest **Strategic Plan** from DB, and structural scans of **20+ Indices** based on the current **Mission Clock**.")
         
         # 1. Action Button: FETCH DATA ONLY
         def clear_step1_state():
-            st.session_state.macro_index_data = [] 
-            st.session_state.macro_etf_structures = [] 
+            st.session_state.macro_index_data = []
+            st.session_state.macro_raw_dfs = {}
+            st.session_state.macro_etf_structures = []
+            st.session_state.macro_context_alerts = {}
+            st.session_state.macro_stale_alerts = []
             st.session_state.step1_data_ready = False
             st.session_state.premarket_economy_card = None 
+            st.session_state.macro_audit_log = []
+            st.session_state.macro_audit_log_has_errors = False
+            st.session_state.macro_missing_tickers = []
+            st.session_state.macro_analysis_failures = []
 
-        if st.button("Fetch Market Data (Step 1a)", type="primary", on_click=clear_step1_state):
+        if st.button("✨ Run Step 1: Full Analysis", type="primary", on_click=clear_step1_state):
             # State is already cleared by callback
             
             with st.status(f"Fetching Macro Data...", expanded=True) as status:
-                
+                a_logger = AuditLogger('macro_audit_log')
+                a_logger.log("🚀 Starting Macro Scan 1a...")
+
                 # A. FETCH EOD
                 status.write("1. Retrieving End-of-Day Context...")
-                lookup_cutoff = (simulation_cutoff_dt - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+                # Use Simulation Cutoff directly (allows finding same-day plans if needed)
+                lookup_cutoff = (simulation_cutoff_dt).strftime('%Y-%m-%d %H:%M:%S')
                 latest_date = get_latest_economy_card_date(turso, lookup_cutoff, logger)
                 
                 eod_card = {}
@@ -752,294 +851,307 @@ def main():
                     cst, xst = create_capital_session_v2()
                     if not cst or not xst:
                         status.update(label="Auth Failed", state="error")
-                        st.error("❌ Capital.com Authentication Failed. Check Infisical Secrets (`capital_com_X_CAP_API_KEY`, `capital_com_IDENTIFIER`, `capital_com_PASSWORD`).")
+                        st.error("❌ Capital.com Authentication Failed. Check Infisical Secrets or enable **DB Fallback** in the Mission Config to proceed with historical data.")
                         st.stop()
 
+                import time
                 progress_bar = st.progress(0)
-                def process_macro_parallel(t):
-                    """Worker function for macro index structure scanning."""
-                    try:
-                        # ROUTED DATA FETCH (Live/Sim)
-                        df = get_session_bars_routed(
-                            turso, 
-                            t, 
-                            benchmark_date_str, 
-                            simulation_cutoff_str, 
-                            mode=mode, 
-                            logger=None, # Avoid thread noise
-                            db_fallback=st.session_state.get('db_fallback', False)
-                        )
-                        
-                        if df is None or df.empty:
-                            return None
+                
+                # PHASE 1: SEQUENTIAL GATHERING (Rate Limit Compliant)
+                status.write("2. Gathering Market Data (Sequential Fetches)...")
+                raw_datafeeds = {}
+                st.session_state.macro_missing_tickers = []
+                for idx, t in enumerate(CORE_INTERMARKET_TICKERS):
+                    status.write(f"   Fetching {t}...")
+                    df = get_session_bars_routed(
+                        turso, 
+                        t, 
+                        benchmark_date_str, 
+                        simulation_cutoff_str, 
+                        mode=mode, 
+                        logger=a_logger, # Use AuditLogger
+                        db_fallback=st.session_state.get('db_fallback', False),
+                        days=2.9, # LOOSENED: Structural Context without clamping
+                        resolution="MINUTE_5"
+                    )
+                    if df is not None and not df.empty:
+                        raw_datafeeds[t] = df
+                    else:
+                        st.session_state.macro_missing_tickers.append(t)
+                        a_logger.log(f"❌ {t}: Failed to fetch data (Check resolution or market hours).")
+                    
+                    # Respect Capital.com 1s Rate Limit (ONLY in Live mode without DB fallback)
+                    if mode == "Live" and not st.session_state.get('db_fallback', False):
+                        time.sleep(1)
+                    
+                    progress_bar.progress((idx + 1) / len(CORE_INTERMARKET_TICKERS))
 
-                        latest_price = df.iloc[-1]['Close']
-                        p_ts = df.iloc[-1]['timestamp']
+                # GAP DETECTION WARNING (Status box visibility)
+                if st.session_state.macro_missing_tickers:
+                    status.write(f"⚠️ **Gaps detected**: {', '.join(st.session_state.macro_missing_tickers)}")
+
+                # PHASE 2: PARALLEL ANALYSIS (CPU Bound)
+                status.write("3. Analyzing Market Structure (Parallel Engine)...")
+                
+                # NARRATIVE PIVOT: Define Session Start (04:00 ET) for Anchor & Delta filtering
+                session_start_dt = simulation_cutoff_dt.replace(hour=4, minute=0, second=0, microsecond=0)
+
+                def analyze_macro_worker(ticker, df, session_start_dt=None):
+                    """
+                    Worker for Macro Indices.
+                    """
+                    try:
+                        from modules.processing import analyze_market_context
+                        latest_row = df.iloc[-1]
+                        latest_price = latest_row['Close']
+                        p_ts = latest_row['timestamp']
                         
                         # Get Previous Close Reference
-                        ref_levels = get_previous_session_stats(turso, t, benchmark_date_str, logger=None)
-                        card = analyze_market_context(df, ref_levels, ticker=t)
+                        ref_levels = get_previous_session_stats(turso, ticker, benchmark_date_str, logger=None)
+                        card = analyze_market_context(df, ref_levels, ticker=ticker, session_start_dt=session_start_dt)
                         
                         mig_count = len(card.get('value_migration_log', []))
                         imp_count = len(card.get('key_level_rejections', []))
+                        
                         freshness = 0.0
+                        lag_min = 999.0
                         try:
                             if p_ts:
                                 ts_clean = str(p_ts).replace("Z", "+00:00").replace(" ", "T")
                                 ts_obj = datetime.fromisoformat(ts_clean)
                                 if ts_obj.tzinfo is None: 
                                     ts_obj = pytz_timezone('UTC').localize(ts_obj)
-                                
-                                ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                                lag_min = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                                ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern')).replace(tzinfo=None)
+                                lag_min = (simulation_cutoff_dt.replace(tzinfo=None) - ts_et).total_seconds() / 60.0
                                 freshness = max(0.0, 1.0 - (lag_min / 60.0))
-                        except: pass
+                        except Exception as e: 
+                            print(f"Freshness Calc Error for {ticker}: {e}")
 
                         data_source = df['source'].iloc[0] if 'source' in df.columns else ('Capital.com' if mode == 'Live' else 'DB')
                         
+                        # Get UTC timestamp if available
+                        ts_utc = "N/A"
+                        if p_ts:
+                            try:
+                                # Ensure we have the UTC version
+                                if 'dt_utc' in df.columns:
+                                    ts_utc = str(df['dt_utc'].iloc[-1])
+                                else:
+                                    ts_utc = str(p_ts)
+                            except: ts_utc = str(p_ts)
+
+                        # FRESHNESS SCORE (0-1 scale, where 1.0 is < 5 mins and 0.0 is > 60 mins)
+                        freshness_progress = max(0.0, 1.0 - (lag_min / 60.0))
+                        
                         return {
-                            "ticker": t,
+                            "ticker": ticker,
                             "card": card,
-                            "df": df, # Needed for chart rendering after
                             "latest_price": latest_price,
+                            "latest_ts_utc": ts_utc,
                             "data_source": data_source,
                             "mig_count": mig_count,
                             "imp_count": imp_count,
-                            "freshness": freshness
+                            "freshness_score": freshness_progress,
+                            "lag_min": lag_min,
+                            "df": df
                         }
-                    except Exception:
-                        return None
+                    except Exception as e:
+                        err_msg = f"Worker Error for {ticker}: {str(e)}"
+                        print(err_msg)
+                        # AuditLogger is not thread-safe for direct append from worker threads
+                        # st.session_state.macro_audit_log.append(f"⚠️ {t}: Analysis Failure - {str(e)}")
+                        return {"ticker": ticker, "error": str(e), "failed_analysis": True}
 
-                status.write("2. Scanning Core Indices (Parallel Structure Scan)...")
-                
-                # Use ThreadPoolExecutor for speed
                 macro_results = []
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = [executor.submit(process_macro_parallel, t) for t in CORE_INTERMARKET_TICKERS]
+                st.session_state.macro_analysis_failures = []
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = [executor.submit(analyze_macro_worker, t, df, session_start_dt) for t, df in raw_datafeeds.items()]
                     for future in concurrent.futures.as_completed(futures):
                         res = future.result()
                         if res:
-                            macro_results.append(res)
+                            if res.get('failed_analysis'):
+                                st.session_state.macro_analysis_failures.append(res['ticker'])
+                                a_logger.log(f"⚠️ {res['ticker']}: Analysis Failure - {res['error']}")
+                            else:
+                                macro_results.append(res)
                 
+                # Sort alphabetically for consistency
+                macro_results = sorted(macro_results, key=lambda x: x['ticker'])
+
+                # STALE CHECK (Unified Date Check)
+                analysis_date_str = st.session_state.analysis_date.strftime('%Y-%m-%d')
+                context_map = {}
+                for r in macro_results:
+                    if r['latest_ts_utc'] != "N/A":
+                        dt_str = r['latest_ts_utc'][:10]
+                        if dt_str != analysis_date_str:
+                            if dt_str not in context_map: context_map[dt_str] = []
+                            context_map[dt_str].append(r['ticker'])
+                
+                if context_map:
+                    st.session_state.macro_context_alerts = context_map
+                    for dt, tks in context_map.items():
+                        a_logger.log(f"⚠️ Context Alert ({dt}): {', '.join(tks)}")
+
+                if st.session_state.macro_analysis_failures:
+                    st.error(f"⚠️ **Analysis Error**: Failed to analyze {len(st.session_state.macro_analysis_failures)} symbols: {', '.join(st.session_state.macro_analysis_failures)}.")
+
+                # STALE CHECK (>1h)
+                stale_1h = [r['ticker'] for r in macro_results if r['lag_min'] > 60]
+                if stale_1h:
+                    st.session_state.macro_stale_alerts = stale_1h
+                    a_logger.log(f"🚨 Stale Data Alert: {len(stale_1h)} symbols have data older than 1 HOUR: {', '.join(stale_1h)}.")
+
+                stale_30m = [r['ticker'] for r in macro_results if 30 < r['lag_min'] <= 60]
+                if stale_30m:
+                    a_logger.log(f"⏰ Delayed Data: {len(stale_30m)} symbols have 30-60m lag: {', '.join(stale_30m)}.")
+
                 # Final Processing & UI Rendering (Main Thread)
                 for idx, res in enumerate(macro_results):
                     st.session_state.macro_etf_structures.append(json.dumps(res['card']))
+                    st.session_state.macro_raw_dfs[res['ticker']] = res['df'] # SAVE FOR POST-REFRESH CHARTS
                     st.session_state.macro_index_data.append({
                         "Ticker": res['ticker'],
-                        "Source": res['data_source'],
+                        "Freshness": res['freshness_score'],
                         "Price": f"${res['latest_price']:.2f}",
-                        "Migration Steps": res['mig_count'],
-                        "Impact Zones": res['imp_count']
+                        "Timestamp (UTC)": res['latest_ts_utc'],
+                        "Lag (m)": f"{res['lag_min']:.1f}",
+                        "Source": res['data_source']
                     })
-                    
-                    # VISUAL VERIFICATION (Expanders)
-                    with st.expander(f"📊 {res['ticker']} ({res['data_source']}) - Structure", expanded=(idx == 0)):
-                        render_lightweight_chart_simple(res['df'], res['ticker'], height=250)
-                        st.caption(f"Latest: {res['latest_price']} | Source: **{res['data_source']}**")
-
 
                 # CRITICAL CHECK: PREVENT EMPTY API CALLS
                 if not st.session_state.macro_etf_structures:
                     status.update(label="Aborted: No Data", state="error")
                     if mode == "Live":
-                         st.error("❌ No Data received from Capital.com. Check Market Hours or Symbol Mapping.")
+                         st.error("❌ No Data received from Capital.com. Check Market Hours or enable **DB Fallback** in the Mission Config.")
+                         a_logger.log("❌ No Data received from Capital.com.")
                     else:
                          st.error("❌ No Market Data found in DB (Core Indices). Aborting AI Call to save credits.")
+                         a_logger.log("❌ No Market Data found in DB (Core Indices).")
                     st.stop()
                 
-                # DATA READY - Prompt building happens later
+                # DATA READY - Check for Gaps (Missing or Analysis Failures) or Stale Data (>1h)
                 st.session_state.step1_data_ready = True
-                status.update(label="Data Fetch Complete", state="complete")
-                st.rerun()
+                
+                # Check for critical gaps
+                has_critical_gaps = bool(st.session_state.macro_missing_tickers) or bool(st.session_state.macro_analysis_failures)
+                # Check for stale data (>1h)
+                has_stale_data = bool(st.session_state.get('macro_stale_alerts'))
+                
+                if has_critical_gaps or has_stale_data:
+                    # STOP: Gaps or Stale Data detected. Exit button logic.
+                    if has_critical_gaps:
+                        status.update(label="⚠️ Gaps Detected - Verification Required", state="error")
+                        a_logger.log("⚠️ Gaps detected. Stopping for user confirmation.")
+                    else:
+                        status.update(label="⏰ Stale Data Detected - Confirmation Required", state="error")
+                        a_logger.log("⏰ Stale data detected (>1h). Stopping for user confirmation.")
+                    st.rerun()
+                else:
+
+                    st.session_state.macro_force_synthesis = False # Reset if we reached here naturally
+                    
+                    # --- AUTO-TRIGGER AI SYNTHESIS (Zero Gaps Path) ---
+                    run_macro_synthesis(status, eod_card, pm_news, benchmark_date_str, logger, selected_model)
+                    st.rerun()
+
+        st.markdown("---") # RESTORED: Separator after Action Button
+
 
         # 2. MIDDLE SECTION (Verification & Prompt Construction)
+        # --- RESULTS & VERIFICATION (Combined Step 1 Output) ---
         if st.session_state.step1_data_ready:
             
-            # --- SHOW DATA ---
-            st.markdown("### 📋 Step 1a Verification: Data")
-            
-            # Display Helper (Summary)
-            st.info(f"Indices Scanned: {len(st.session_state.macro_index_data)}")
+            # Dynamic Heading based on State
+            if not st.session_state.premarket_economy_card:
+                st.markdown("### 🔍 Data Integrity Verification")
+            else:
+                st.markdown("### ✅ Macro Context Results")
 
-            st.dataframe(
-                pd.DataFrame(st.session_state.macro_index_data),
-                width="stretch"
-            )
+            # A. Verification Data (PRIORITIZED)
+            if st.session_state.premarket_economy_card:
+                st.subheader("1. Data Verification")
+                # Display Helper (Summary)
+                total_expected = len(CORE_INTERMARKET_TICKERS)
+                st.caption(f"Indices Scanned: {len(st.session_state.macro_index_data)} / {total_expected}")
 
-            # --- DYNAMIC PROMPT CONSTRUCTION (Step 1b Logic) ---
-            # Reconstruct prompt every rerun using current News Input
             
-            # Parse ETF Structures
-            clean_etf_structures = []
-            for s in st.session_state.macro_etf_structures:
-                try:
-                    clean_etf_structures.append(json.loads(s))
-                except:
-                    clean_etf_structures.append(s) 
+            # 1. CRITICAL GAP & STALE DATA GUARD UI
+            has_critical_gaps = bool(st.session_state.macro_missing_tickers) or bool(st.session_state.macro_analysis_failures)
+            has_stale_data = bool(st.session_state.get('macro_stale_alerts'))
+            
+            if (has_critical_gaps or has_stale_data) and not st.session_state.premarket_economy_card:
+                if has_critical_gaps:
+                    st.error("🚨 **Gaps Detected in Market Data**")
+                    if st.session_state.macro_missing_tickers:
+                        st.markdown(f"- **Missing Tickers**: {', '.join(st.session_state.macro_missing_tickers)}")
+                    if st.session_state.macro_analysis_failures:
+                        st.markdown(f"- **Analysis Failures**: {', '.join(st.session_state.macro_analysis_failures)}")
+                
+                if has_stale_data:
+                    st.warning(f"⏰ **Stale Data Alert**: The following indices are older than 1 hour: **{', '.join(st.session_state.macro_stale_alerts or [])}**")
+                
+                st.info("💡 **Decision Required**: Are you sure you want to make the LLM call? Synthesis is paused to save credits.")
 
-            # B. GENERATE AI ANALYSIS
-            st.write("2. Synthesizing Macro Narrative (Masterclass Model)...")
-            
-            # Retrieve Rolling Log (Placeholder: getting from EOD Card if available)
-            rolling_log = st.session_state.glassbox_eod_card.get('keyActionLog', []) if st.session_state.glassbox_eod_card else []
-            # Ideally we would query DB for last 5 days here. For now, we start with what we have.
-            
-            # GENERATE WITH MACRO ENGINE
-            macro_prompt, macro_system = generate_economy_card_prompt(
-                eod_card=st.session_state.glassbox_eod_card,
-                etf_structures=clean_etf_structures,
-                news_input=pm_news,
-                analysis_date_str=benchmark_date_str,
-                logger=logger,
-                rolling_log=rolling_log
-            )
-            
-            selected_model = "gemini-2.0-flash-thinking-exp-01-21" # Use Thinking model for deep logic
-            
-            st.session_state.glassbox_prompt = macro_prompt
-            st.session_state.glassbox_prompt_system = macro_system # STORE FOR CALL
-            
-            with st.expander("Review AI Prompt (Copy for Manual Use)", expanded=False):
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("🚀 Proceed Anyway (Use Credits)", type="primary", use_container_width=True):
+                        with st.status("Manual Synthesis Triggered...", expanded=True) as status_man:
+                            eod_card = st.session_state.get('glassbox_eod_card', {})
+                            news_in = st.session_state.get('pm_news_input', '')
+                            run_macro_synthesis(status_man, eod_card, news_in, benchmark_date_str, logger, selected_model)
+                            st.rerun()
+
+                
+                with c2:
+                    if st.button("🔄 Clean & Retry Fetch", type="secondary", use_container_width=True):
+                        clear_step1_state()
+                        st.rerun()
+
+            # Alerts (Only show as supplementary info if the AI Narrative is already generated)
+            if st.session_state.premarket_economy_card:
+                if st.session_state.get('macro_context_alerts'):
+                    for d, tks in st.session_state.macro_context_alerts.items():
+                        st.warning(f"⚠️ **Context Alert ({d})**: Data for **{', '.join(tks)}** is from a previous session.")
+                
+                if st.session_state.get('macro_stale_alerts'):
+                    st.error(f"🚨 **Stale Data Alert**: {len(st.session_state.macro_stale_alerts)} symbols have >1hr lag.")
+
+                if st.session_state.macro_missing_tickers:
+                    st.warning(f"⚠️ **Data Gaps**: **{', '.join(st.session_state.macro_missing_tickers)}** failed to fetch.")
+
+
+            # Tables & Charts
+            with st.expander("📝 Summary Table & Details", expanded=False):
+                st.dataframe(pd.DataFrame(st.session_state.macro_index_data))
+                if st.session_state.macro_raw_dfs:
+                    st.markdown("#### Structural Charts")
+                    for t, df in st.session_state.macro_raw_dfs.items():
+                        st.markdown(f"**{t}**")
+                        render_lightweight_chart_simple(df, t, height=200)
+
+            # Audit Log
+            if st.session_state.macro_audit_log and st.session_state.get('macro_audit_log_has_errors'):
+                with st.expander("🛠️ Technical Audit Log", expanded=False):
+                    for entry in st.session_state.macro_audit_log: st.write(entry)
+                    
+            # Prompt Review
+            if st.session_state.get('glassbox_prompt'):
+                with st.expander("🔍 Review AI Prompt", expanded=False):
                     st.code(st.session_state.glassbox_prompt, language="text")
 
-            st.divider()
-        
 
-        # --- STEP 1b: AI SYNTHESIS (ALWAYS VISIBLE) ---
-        st.header("Step 1b: AI Synthesis")
-        st.caption("Generate the Market Narrative using the fetched data.")
-        st.write("") # Vertical Spacer
-        
-        # --- ACTION COLUMNS ---
-        c1, c2 = st.columns([1, 1])
-        
-        with c1:
-            st.markdown("#### 🤖 Auto Mode")
-            if st.button("✨ Run Gemini Analysis (Step 1b)", type="primary"):
-                # VALIDATION: Check if Step 1a ran
-                if not st.session_state.step1_data_ready:
-                    st.warning("⚠️ Please run **Step 1a: Fetch Market Data** first.")
-                    st.stop()
+
+            # B. AI Narrative (The Verdict)
+            if st.session_state.premarket_economy_card:
+                st.markdown("### 🤖 The Macro Narrative")
+                display_view_economy_card(st.session_state.premarket_economy_card)
                 
-                with st.spinner("Running AI Analysis..."):
-                    resp, error_msg = call_gemini_with_rotation(
-                        st.session_state.glassbox_prompt, 
-                        st.session_state.get('glassbox_prompt_system', "You are a Global Macro Strategist."), 
-                        logger, 
-                        selected_model, 
-                        st.session_state.key_manager_instance
-                    )
-
-                    if resp:
-                        try:
-                            clean = re.search(r"(\{.*\})", resp, re.DOTALL).group(1)
-                            st.session_state.premarket_economy_card = json.loads(clean)
-                            st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
-                            st.success("Macro Context Generated!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"JSON Parse Error: {e}")
-                            with st.expander("Raw Output"):
-                                st.code(resp)
-                    else:
-                        st.error(error_msg)
-
-        with c2:
-            st.markdown("#### 🛠️ Manual Fallback")
-            with st.expander("Paste AI Response (Manual JSON)", expanded=False):
-                manual_json = st.text_area("Paste the JSON output from an external LLM here:", height=200)
-                if st.button("Process Manual JSON"):
-                    if manual_json:
-                        try:
-                            clean = re.search(r"(\{.*\})", manual_json, re.DOTALL).group(1)
-                            st.session_state.premarket_economy_card = json.loads(clean)
-                            st.session_state.latest_macro_date = st.session_state.analysis_date.isoformat()
-                            st.success("Manual JSON Processed Successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Invalid JSON: {e}")
-                    else:
-                        st.warning("Please paste JSON first.")
+                with st.expander("View Full Card JSON", expanded=False):
+                    st.json(st.session_state.premarket_economy_card)
 
 
-        # 2. Results Display (Vertical Stack)
-        if st.session_state.premarket_economy_card:
-            st.divider()
-            st.markdown("### ✅ Step 1 Results: Macro Context")
-            
-            # A. EOD Context
-            st.subheader("1. Previous Session Context (The Foundation)")
-            with st.expander("View EOD Details", expanded=False):
-                if st.session_state.glassbox_eod_card:
-                    st.json(st.session_state.glassbox_eod_card)
-                else:
-                    st.info("No EOD Card Found.")
-
-            # B. Index Structure
-            st.subheader("2. Pre-Market Index Structure (The Evidence)")
-            if st.session_state.macro_index_data:
-                time_label = simulation_cutoff_dt.strftime('%H:%M')
-                st.dataframe(
-                    pd.DataFrame(st.session_state.macro_index_data),
-                    width="stretch",
-                    column_config={
-                         "Freshness": st.column_config.ProgressColumn(f"Freshness ({time_label})", min_value=0, max_value=1, format=" ")
-                    }
-                )
-            else:
-                st.warning("⚠️ No Index Structure Data Captured. (Check DB for SPY/QQQ data)")
-            
-            # C. Prompt Packet (Visualized)
-            st.subheader("3. AI Prompt Packet (Transparency)")
-            
-            with st.expander("View Full Prompt Inputs (Visualized)", expanded=False):
-                # 3.1 EOD
-                st.markdown("**1. Previous Session Context (EOD)**")
-                if st.session_state.glassbox_eod_card:
-                    st.json(st.session_state.glassbox_eod_card, expanded=False)
-                else:
-                    st.info("No EOD Context")
-
-                # 3.2 INDICES (GRAPHS)
-                st.markdown("**2. Core Indices Structure (Visual Verification)**")
-                structures = st.session_state.glassbox_prompt_structure.get('inputs', {}).get('2_indices_structure', [])
-                if not structures and st.session_state.macro_etf_structures:
-                     # Fallback to raw list if dict missing
-                     structures = st.session_state.macro_etf_structures
-
-                if structures:
-                    for s in structures:
-                        fig = render_market_structure_chart(s)
-                        if fig:
-                            st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            # Fallback if chart fails (e.g. malformed data)
-                            st.text(str(s)[:200] + "...") 
-                else:
-                    st.warning("No Index Structure Data sent to AI.")
-
-                # 3.3 NEWS
-                st.markdown("**3. Overnight News**")
-                st.text(pm_news)
-
-                # 3.4 TASK INSTRUCTIONS
-                st.markdown("**4. Task Instructions**")
-                instructions = st.session_state.glassbox_prompt_structure.get('task_instructions', [])
-                if instructions:
-                    for i in instructions:
-                        st.markdown(f"- {i}")
-                else:
-                    st.text("Standard Macro Synthesis Task")
-
-            # D. Final Output (Refactored for Narrative Focus)
-            st.subheader("4. The Market Narrative (The Story)")
-            
-            # Narrative First
-            # REFACTORED: Use the User's Preferred View Component
-            display_view_economy_card(st.session_state.premarket_economy_card)
-
-            with st.expander("View Full Context JSON"):
-                st.json(st.session_state.premarket_economy_card)
 
 
     # ==============================================================================
@@ -1123,17 +1235,27 @@ def main():
                     status_io.update(label="✅ Data Fetched! Starting AI Analysis...", state="complete")
 
                 # Worker (PURE CPU/AI - NO DB)
-                def process_deep_dive(ticker, key_mgr, macro_summary, date_obj, model, static_data):
+                def process_deep_dive(ticker, key_mgr, macro_summary, date_obj, model, static_data, st_status, st_ctx):
                     import traceback
-                    # NOTE: AppLogger is NOT thread-safe for Strealit rendering. 
-                    # We will use a dummy logger that just prints to console.
-                    class ThreadSafeLogger:
+                    if st_ctx:
+                        add_script_run_ctx(ctx=st_ctx)
+                    # Thread-safe UI Logger for Streamlit
+                    class StreamlitThreadLogger:
+                        def __init__(self, ticker, status_container):
+                            self.ticker = ticker
+                            self.status = status_container
+                        
                         def log(self, msg):
-                            print(f"[Worker-{ticker}] {msg}")
+                            # Print to terminal for redundancy
+                            print(f"[Worker-{self.ticker}] {msg}")
+                            # Write to Streamlit container with ticker prefix
+                            # Use colored markers for different tickers
+                            colors = ["blue", "green", "orange", "red", "violet", "gray"]
+                            t_color = colors[hash(self.ticker) % len(colors)]
+                            self.status.write(f"**:{t_color}[{self.ticker}]** {msg}")
                     
-                    local_logger = ThreadSafeLogger()
+                    local_logger = StreamlitThreadLogger(ticker, st_status)
                     
-                    print(f"--- [DEBUG] Worker STARTED for {ticker} ---")
                     try:
                         # Unpack pre-fetched data
                         data = static_data.get(ticker, {})
@@ -1143,7 +1265,6 @@ def main():
                         print(f"    [DEBUG] {ticker}: Context Len: {len(impact_json)}, Prev Card Len: {len(prev_card)}")
 
                         # Generate
-                        print(f"    [DEBUG] {ticker}: Calling update_company_card...")
                         json_result = update_company_card(
                             ticker=ticker,
                             previous_card_json=prev_card,
@@ -1155,31 +1276,35 @@ def main():
                             key_manager=key_mgr,
                             pre_fetched_context=impact_json, # PASS JSON STRING directly
                             market_context_summary=macro_summary,
-                            logger=local_logger # Use ThreadSafe Version
+                            logger=local_logger # Use ThreadSafe UI Version
                         )
-                        print(f"--- [DEBUG] Worker FINISHED for {ticker} (Success: {json_result is not None}) ---")
+                        
+                        # PERSIST TO TURSO (Persistent Live Storage)
+                        if json_result:
+                            save_deep_dive_card(turso, ticker, str(date_obj), json_result, local_logger)
+                            
                         return ticker, json_result
                     except Exception as e:
-                        print(f"!!! [DEBUG] Worker EXCEPTION for {ticker}: {e}")
+                        local_logger.log(f"❌ Worker EXCEPTION: {e}")
                         traceback.print_exc() # FORCE PRINT TO TERMINAL
                         return ticker, None
 
                 # Parallel Run
                 macro_context_summary = json.dumps(st.session_state.premarket_economy_card, indent=2)
+                ctx = get_script_run_ctx()
                 print(f"[DEBUG] Starting Parallel Execution. Workers: 20. Tickers: {len(selected_deep_dive)}")
                 with st.status(f"Generating Masterclass Cards ({len(selected_deep_dive)})...", expanded=True) as status_deep:
                     # UTILIZE ALL KEYS: Increased workers to 20 to allow full parallel utilization of API rotation
                     with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
                         # Pass a copy of the key manager if it's mutable? It usually is thread-safe for reading.
-                        futures = {executor.submit(process_deep_dive, t, km, macro_context_summary, st.session_state.analysis_date, selected_model, pre_fetched_data): t for t in selected_deep_dive}
+                        futures = {executor.submit(process_deep_dive, t, km, macro_context_summary, st.session_state.analysis_date, selected_model, pre_fetched_data, status_deep, ctx): t for t in selected_deep_dive}
                         
                         for future in concurrent.futures.as_completed(futures):
                             tkr, res = future.result()
                             if res:
                                 deep_results[tkr] = json.loads(res)
-                                status_deep.write(f"✅ Analyzed {tkr}")
                             else:
-                                status_deep.write(f"❌ Failed {tkr}")
+                                status_deep.write(f"❌ **{tkr}**: Generation failed. See detailed logs above.")
                                 
                     if deep_results:
                         st.session_state.detailed_premarket_cards.update(deep_results)
@@ -1212,26 +1337,45 @@ def main():
             run_btn = st.button("Run Unified Selection Scan (Structure + Proximity)", type="primary", use_container_width=True)
 
         # Display Table Here
-        etf_placeholder = st.empty()
+        # --- SHOW ACTUAL VS EXPECTED --- (Refined)
         if st.session_state.glassbox_etf_data:
-            time_label = simulation_cutoff_dt.strftime('%H:%M')
-            etf_placeholder.dataframe(
-                pd.DataFrame(st.session_state.glassbox_etf_data), 
-                width="stretch",
-                column_config={
-                    "Freshness": st.column_config.ProgressColumn(
-                        f"Freshness (vs {time_label})", 
-                        format=" ", 
-                        min_value=0, 
-                        max_value=1, 
-                        width="small"
-                    ),
-                    "Migration Blocks": st.column_config.NumberColumn("Migration Steps"),
-                    "Impact Levels": st.column_config.NumberColumn("Impact Zones"),
-                },
-            )
+            watchlist_list = sorted(list(set(fetch_watchlist(turso, None))))
+            watchlist_count = len(watchlist_list)
+            st.info(f"Watchlist Assets Scanned: {len(st.session_state.glassbox_etf_data)} / {watchlist_count}")
+        
+        # --- PERSISTENT GAP WARNING (Outside) ---
+        if st.session_state.get('unified_missing_tickers'):
+            st.warning(f"⚠️ **Unified Scan Gaps**: Data missing for {', '.join(st.session_state.unified_missing_tickers)}.")
+
+        if st.session_state.get('unified_context_alerts'):
+            u_contexts = st.session_state.unified_context_alerts
+            if isinstance(u_contexts, dict):
+                for d, tks in u_contexts.items():
+                    st.warning(f"⚠️ **Unified Context Alert ({d})**: Data for **{', '.join(tks)}** is from a previous session.")
+            
+        if st.session_state.get('unified_stale_alerts'):
+            st.error(f"🚨 **Unified Stale Alert**: {len(st.session_state.unified_stale_alerts)} assets have data older than 1 HOUR: **{', '.join(st.session_state.unified_stale_alerts)}**.")
+
+        if st.session_state.glassbox_etf_data:
+            with st.expander("📝 View Selection Strategy Table", expanded=True):
+                time_label = simulation_cutoff_dt.strftime('%H:%M')
+                st.dataframe(
+                    pd.DataFrame(st.session_state.glassbox_etf_data), 
+                    width="stretch",
+                    column_config={
+                        "Freshness": st.column_config.ProgressColumn(
+                            f"Freshness (vs {time_label})", 
+                            format=" ", 
+                            min_value=0, 
+                            max_value=1, 
+                            width="small"
+                        ),
+                        "Migration Blocks": st.column_config.NumberColumn("Migration Steps"),
+                        "Impact Levels": st.column_config.NumberColumn("Impact Zones"),
+                    },
+                )
         else:
-            etf_placeholder.info("Ready for Unified Selection Scan...")
+            st.info("Ready for Unified Selection Scan...")
 
         if run_btn:
             if not st.session_state.premarket_economy_card:
@@ -1240,59 +1384,98 @@ def main():
                 st.session_state.glassbox_etf_data = []
                 st.session_state.glassbox_raw_cards = {}
                 st.session_state.proximity_scan_results = []
-                etf_placeholder.empty()
+                st.session_state.unified_missing_tickers = []
+                st.session_state.unified_audit_log = [] # Clear audit log on new fetch
+                st.session_state.unified_audit_log_has_errors = False
+                st.session_state.unified_context_alerts = {}
+                st.session_state.unified_stale_alerts = []
+                st.session_state.db_plans = {}
 
                 with st.status(f"Running Unified Selection Scan ({mode})...", expanded=True) as status:
+                    u_logger = AuditLogger('unified_audit_log')
+                    u_logger.log("🚀 Starting Unified Selection Scan...")
+                    import time
                     # 1. Fetch Watchlist & Strategic Plans
-                    watchlist = fetch_watchlist(turso, logger)
+                    watchlist = fetch_watchlist(turso, u_logger)
                     full_ticker_list = sorted(list(set(watchlist)))
                     
                     ref_date_dt = st.session_state.analysis_date
                     ref_date_str = ref_date_dt.strftime('%Y-%m-%d')
                     
                     status.write("1. Loading Strategic Plans for Proximity Check...")
-                    db_plans = get_eod_card_data_for_screener(turso, tuple(full_ticker_list), ref_date_str, logger)
+                    st.session_state.db_plans = get_eod_card_data_for_screener(turso, tuple(full_ticker_list), ref_date_str, u_logger)
                     
-                    def process_ticker_unified(ticker_to_scan):
-                        """Unified worker for both Structure Analysis and Proximity Check."""
-                        try:
-                            # A. FETCH DATA
-                            df = get_session_bars_routed(
-                                turso, 
-                                ticker_to_scan, 
-                                benchmark_date_str, 
-                                simulation_cutoff_str, 
-                                mode, 
-                                logger=None,
-                                db_fallback=st.session_state.get('db_fallback', False),
-                                premarket_only=False # Ensure latest for proximity
-                            )
-                            if df is None or df.empty: return None
+                    # PHASE A: SEQUENTIAL FETCHING
+                    status.write(f"2. Gathering Live Data for {len(full_ticker_list)} assets (Sequential)...")
+                    raw_datafeeds = {}
+                    st.session_state.unified_missing_tickers = []
+                    prog_scan = st.progress(0)
+                    for idx, t in enumerate(full_ticker_list):
+                        status.write(f"   Fetching {t}...")
+                        df = get_session_bars_routed(
+                            turso, 
+                            t, 
+                            benchmark_date_str, 
+                            simulation_cutoff_str, 
+                            mode=mode, 
+                            logger=u_logger, # Use AuditLogger
+                            db_fallback=st.session_state.get('db_fallback', False),
+                            premarket_only=False,
+                            days=2.9, # LOOSENED: Structural Context without clamping
+                            resolution="MINUTE_5"
+                        )
+                        if df is not None and not df.empty:
+                            raw_datafeeds[t] = df
+                        else:
+                            st.session_state.unified_missing_tickers.append(t)
+                            u_logger.log(f"❌ {t}: Failed to fetch data.")
+                        
+                        # Rate Limit: 1s
+                        if mode == "Live" and not st.session_state.get('db_fallback', False):
+                            time.sleep(1)
+                        prog_scan.progress((idx + 1) / len(full_ticker_list))
 
+                    if st.session_state.unified_missing_tickers:
+                        status.write(f"⚠️ **Watchlist Gaps**: {', '.join(st.session_state.unified_missing_tickers)}")
+
+                    # PHASE B: PARALLEL ANALYSIS
+                    
+                    # NARRATIVE PIVOT: Define Session Start (04:00 ET) for Anchor & Delta filtering
+                    u_session_start_dt = simulation_cutoff_dt.replace(hour=4, minute=0, second=0, microsecond=0)
+
+                    def analyze_ticker_unified_worker(ticker_to_scan, df, session_start_dt=None, st_ctx=None):
+                        """
+                        Worker for Step 2: Selection Strategy cards.
+                        """
+                        if st_ctx:
+                            add_script_run_ctx(ctx=st_ctx)
+                        try:
+                            from modules.processing import analyze_market_context
+                            # 1. ANALYZE PRICE ACTION (TACTICAL TERRAIN)
                             latest_row = df.iloc[-1]
                             l_price = float(latest_row['Close'])
                             p_ts = latest_row['timestamp'] if 'timestamp' in df.columns else latest_row.get('dt_eastern')
 
                             # B. STRUCTURE ANALYSIS
                             ref_levels = get_previous_session_stats(turso, ticker_to_scan, benchmark_date_str, logger=None)
-                            card = analyze_market_context(df, ref_levels, ticker=ticker_to_scan)
+                            card = analyze_market_context(df, ref_levels, ticker=ticker_to_scan, session_start_dt=session_start_dt)
                             
                             mig_count = len(card.get('value_migration_log', []))
                             imp_count = len(card.get('key_level_rejections', []))
                             
                             freshness_score = 0.0
-                            l_minutes = 0.0
+                            l_minutes = 999.0
                             if p_ts:
                                 ts_clean = str(p_ts).replace("Z", "+00:00").replace(" ", "T")
                                 ts_obj = datetime.fromisoformat(ts_clean)
                                 if ts_obj.tzinfo is None: ts_obj = pytz_timezone('UTC').localize(ts_obj)
-                                ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern'))
-                                l_minutes = (simulation_cutoff_dt - ts_et).total_seconds() / 60.0
+                                ts_et = ts_obj.astimezone(pytz_timezone('US/Eastern')).replace(tzinfo=None)
+                                l_minutes = (simulation_cutoff_dt.replace(tzinfo=None) - ts_et).total_seconds() / 60.0
                                 freshness_score = max(0.0, 1.0 - (l_minutes / 60.0))
 
                             # C. PROXIMITY CHECK
                             prox_alert = None
-                            plan_data = db_plans.get(ticker_to_scan)
+                            plan_data = st.session_state.db_plans.get(ticker_to_scan)
                             if plan_data:
                                 s_levels = plan_data.get('s_levels', [])
                                 r_levels = plan_data.get('r_levels', [])
@@ -1312,33 +1495,90 @@ def main():
                                             "Source": f"Plan {plan_data.get('plan_date', ref_date_str)}"
                                         }
 
+                            # TIMESTAMP EXTRACTION (UTC)
+                            ts_u = "N/A"
+                            if p_ts:
+                                try:
+                                    if 'dt_utc' in df.columns: ts_u = str(df['dt_utc'].iloc[-1])
+                                    else: ts_u = str(p_ts)
+                                except: ts_u = str(p_ts)
+
+                            # FRESHNESS SCORE
+                            freshness_p = max(0.0, 1.0 - (l_minutes / 60.0))
+
                             return {
                                 "ticker": ticker_to_scan,
                                 "card": card,
                                 "prox_alert": prox_alert,
+                                "lag_min": l_minutes,
+                                "latest_ts_utc": ts_u,
                                 "table_row": {
                                     "Ticker": ticker_to_scan,
+                                    "Freshness": freshness_p,
                                     "Price": f"${l_price:.2f}",
-                                    "Freshness": freshness_score,
+                                    "Timestamp (UTC)": ts_u,
                                     "Lag (m)": f"{l_minutes:.1f}" if p_ts else "N/A",
-                                    "Audit: Date": f"{p_ts}",
                                     "Migration Blocks": mig_count,
                                     "Impact Levels": imp_count,
                                 }
                             }
-                        except Exception: return None
+                        except Exception as e: 
+                            return {"ticker": ticker_to_scan, "error": str(e), "failed_analysis": True}
 
-                    # 2. Parallel Execution
-                    status.write(f"2. Analyzing {len(full_ticker_list)} assets (Parallel)...")
+                    status.write(f"3. Analyzing {len(raw_datafeeds)} assets (Parallel)...")
+                    
+                    unified_results_list = []
+                    st.session_state.unified_analysis_failures = []
+                    ctx = get_script_run_ctx()
                     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                        future_to_ticker = {executor.submit(process_ticker_unified, t): t for t in full_ticker_list}
+                        future_to_ticker = {executor.submit(analyze_ticker_unified_worker, t, df, u_session_start_dt, ctx): t for t, df in raw_datafeeds.items()}
                         for future in concurrent.futures.as_completed(future_to_ticker):
                             res = future.result()
                             if res:
-                                st.session_state.glassbox_raw_cards[res['ticker']] = res['card']
-                                st.session_state.glassbox_etf_data.append(res['table_row'])
-                                if res['prox_alert']:
-                                    st.session_state.proximity_scan_results.append(res['prox_alert'])
+                                if res.get('failed_analysis'):
+                                    st.session_state.unified_analysis_failures.append(res['ticker'])
+                                else:
+                                    unified_results_list.append(res)
+                                    st.session_state.glassbox_raw_cards[res['ticker']] = res['card']
+                                    st.session_state.glassbox_etf_data.append(res['table_row'])
+                                    if res['prox_alert']:
+                                        st.session_state.proximity_scan_results.append(res['prox_alert'])
+
+                    # Sort for consistent display
+                    st.session_state.glassbox_etf_data = sorted(st.session_state.glassbox_etf_data, key=lambda x: x['Ticker'])
+
+                    # STALE CHECK (Unified)
+                    analysis_date_str = st.session_state.analysis_date.strftime('%Y-%m-%d')
+                    u_context_map = {}
+                    for r in unified_results_list:
+                         if r['latest_ts_utc'] != "N/A":
+                             d = r['latest_ts_utc'][:10]
+                             if d != analysis_date_str:
+                                 if d not in u_context_map: u_context_map[d] = []
+                                 u_context_map[d].append(r['ticker'])
+                    
+                    if u_context_map:
+                        st.session_state.unified_context_alerts = u_context_map
+                        for dt, tks in u_context_map.items():
+                            u_logger.log(f"⚠️ Context Alert ({dt}): {', '.join(tks)}")
+
+                    if st.session_state.unified_analysis_failures:
+                        u_logger.log(f"⚠️ Analysis Error: Failed to analyze symbols: {', '.join(st.session_state.unified_analysis_failures)}.")
+
+                    stale_u_1h = [r['ticker'] for r in unified_results_list if r['lag_min'] > 60]
+                    if stale_u_1h:
+                        st.session_state.unified_stale_alerts = stale_u_1h
+                        u_logger.log(f"🚨 Stale Watchlist Alert: {len(stale_u_1h)} assets have data older than 1 HOUR: {', '.join(stale_u_1h)}.")
+
+                    stale_u_30m = [r['ticker'] for r in unified_results_list if 30 < r['lag_min'] <= 60]
+                    if stale_u_30m:
+                        u_logger.log(f"📊 Note: {len(stale_u_30m)} assets have 30-60m lag.")
+
+                    # --- PERSISTENT AUDIT LOG (Conditional) ---
+                    if st.session_state.unified_audit_log and st.session_state.get('unified_audit_log_has_errors'):
+                        with st.expander("🛠️ Detailed Audit Log (Technical)", expanded=False):
+                            for entry in st.session_state.unified_audit_log:
+                                st.write(entry)
 
                     status.update(label="✅ Unified Scan Complete!", state="complete")
                     st.rerun()
@@ -1347,6 +1587,42 @@ def main():
         if st.session_state.proximity_scan_results:
             st.success(f"🎯 Found {len(st.session_state.proximity_scan_results)} Proximity Alerts")
             st.dataframe(pd.DataFrame(st.session_state.proximity_scan_results).sort_values("Dist %"), width="stretch")
+
+        # PERSISTENT ERROR VISIBILITY (Step 2 Failures)
+        if st.session_state.get('unified_analysis_failures'):
+            st.error(f"⚠️ **Analysis Failures**: The following symbols failed to analyze: {', '.join(st.session_state.unified_analysis_failures)}")
+            if st.session_state.unified_audit_log:
+                with st.expander("🛠️ View Detailed Audit Log for Failures", expanded=False):
+                    for entry in st.session_state.unified_audit_log:
+                        st.write(entry)
+
+        # --- NEW: Card Intel Status Table ---
+        if st.session_state.db_plans:
+            with st.expander("📊 Card Intel (Tiered Lookup Details)", expanded=False):
+                intel_df_list = []
+                for tkr, info in st.session_state.db_plans.items():
+                    # Use the source flags from the tiered lookup
+                    source_label = "LIVE 🟢" if info.get('is_live') else "EOD 📜"
+                    
+                    # Format timestamp
+                    raw_ts = info.get('timestamp', 'N/A')
+                    if raw_ts and raw_ts != "Historical":
+                        try:
+                            # Extract just Time or Date+Time
+                            gen_at = raw_ts[11:16] # HH:MM
+                        except:
+                            gen_at = raw_ts
+                    else:
+                        gen_at = "N/A"
+
+                    intel_df_list.append({
+                        "Ticker": tkr,
+                        "Source": source_label,
+                        "Market Version": info.get('plan_date'),
+                        "Generated At": gen_at,
+                        "Levels": f"S: {len(info.get('s_levels', []))} | R: {len(info.get('r_levels', []))}"
+                    })
+                st.dataframe(pd.DataFrame(intel_df_list).sort_values(["Source", "Ticker"], ascending=[False, True]), use_container_width=True)
 
         # VISUALIZATION
         if st.session_state.glassbox_raw_cards:
@@ -1483,7 +1759,8 @@ def main():
                     try:
                         # Standard Fetch Loop
                         for tkr in selected_tickers:
-                            print(f"DEBUG: Fetching Strategic Plan for {tkr}...") 
+                            # Use the updated tiered fetch in database.py
+                            print(f"DEBUG: Fetching Strategic Plan for {tkr} (Tiered lookup)...") 
                             result = fetch_plan_safe(turso, tkr, use_full_context)
                             
                             if isinstance(result, Exception):
@@ -1533,11 +1810,11 @@ def main():
 
                         evidence = {
                             "ticker": t,
-                            "STRATEGIC_PLAN (The Thesis)": strategic_plans.get(t, "No Plan Found"),
-                            "TACTICAL_REALITY (The Tape)": {
+                            "THE_ANCHOR (Strategic Plan)": strategic_plans.get(t, "No Plan Found"),
+                            "THE_DELTA (Live Tape)": {
                                 "current_price": card['reference_levels']['current_price'],
-                                "premarket_structure": pm_migration,
-                                "impact_zones_found": card['key_level_rejections']
+                                "session_delta_structure": pm_migration,
+                                "new_impact_zones_detected": card['key_level_rejections']
                             }
                         }
                         context_packet.append(evidence)
@@ -1549,13 +1826,12 @@ def main():
                     # PART 1: CONTEXT & ROLE
                     prompt_part_1 = f"""
                     [ROLE]
-                    You are the Head Trader of a proprietary trading desk. Your job is NOT just to find "movers", but to validate **Thesis Alignment**.
+                    You are the Head Trader of a proprietary trading desk. Your job is to analyze the "Narrative Momentum" using the **Anchor & Delta** method.
                     
                     [GLOBAL MACRO CONTEXT]
-                    (The "Wind" - Only take trades that sail WITH this wind)
+                    (The "Wind" - The Governing Anchor for the entire market)
                     {json.dumps(macro_summary, indent=2)}
                     """
-
                     # PART 2: DATA PACKET (CHUNKS)
                     # Split context_packet into smaller chunks (e.g. 3 tickers per chunk)
                     chunk_size = 3
@@ -1565,7 +1841,7 @@ def main():
                         chunk = context_packet[i:i + chunk_size]
                         chunk_str = f"""
                         [CANDIDATE ANALYSIS - BATCH {len(p2_chunks) + 1}]
-                        For this batch of tickers, compare "STRATEGIC_PLAN" with "TACTICAL_REALITY".
+                        For this batch of tickers, compare THE_ANCHOR with THE_DELTA.
                         {json.dumps(chunk, indent=2)}
                         """
                         p2_chunks.append(chunk_str)
@@ -1594,8 +1870,13 @@ def main():
                     - **Confluence Filter**: {confluence_mode}{rr_instruction}{prox_instruction}
                     - **MANDATORY MINIMUM R/R**: 1.5:1. (CRITICAL: If Potential Reward is not at least 1.5x the Risk, DISCARD THE SETUP. It is not tradable.)
                     
-                    **CRITICAL PHILOSOPHY**:
-                    - **NO STATIC PREDICTIONS**: Markets are dynamic. Do not say "It will go up". Say "IF it holds X, THEN it goes up".
+                    **CRITICAL PHILOSOPHY: ANCHOR & DELTA**
+                    - **THE ANCHOR**: The "Strategic Plan" is the established story. Assume it holds the highest probability UNLESS the Delta shows a break.
+                    - **THE DELTA**: The "Live Tape" contains ONLY developments since today's open.
+                    - **NARRATIVE INTEGRITY**: CHECK THE [GLOBAL MACRO CONTEXT]. If the `narrativeStatus` is 'BREAKING ANCHOR', assume ALL individual stock 'Strategic Plans' are compromised. In this state, prioritize 'TIGHT TACTICALS' (price action only) or discard the setup as too ambiguous.
+                    - **CONFIRMATION**: If the Delta structure respects the Anchor's levels and the Macro Context is 'HOLDING', conviction for the plan INCREASES.
+                    
+                    **NO STATIC PREDICTIONS**: Markets are dynamic. Do not say "It will go up". Say "IF it holds X (Delta confirms Anchor), THEN it goes up".
                     - **SCENARIO BASED**: You must define specific TRIGGER CONDITIONS. If these triggers are not hit, the trade is invalid.
                     - **The Edge**: We trade the **PARTICIPATION GAP** (the dislocation between the Pre-Market Move and the Open).
                     - *Ideal Setup*: A ticker has reacted to news, moved to a Strategic Support Level, and is now waiting for the Open to reverse.
