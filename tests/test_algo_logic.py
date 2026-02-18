@@ -5,10 +5,10 @@ import numpy as np
 import sys
 import os
 
-# Add parent dir to path so we can import modules
+# Add parent dir to path so we can import backend.engine
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from modules.processing import detect_impact_levels
+from backend.engine.processing import detect_impact_levels
 
 class TestImpactAlgo(unittest.TestCase):
     

@@ -6,8 +6,8 @@ import time
 # Add root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from modules.key_manager import KeyManager
-from modules.utils import get_turso_credentials
+from backend.engine.key_manager import KeyManager
+from backend.engine.utils import get_turso_credentials
 
 def test_key_manager():
     print("🧪 Testing KeyManager V8...")
@@ -52,6 +52,21 @@ def test_key_manager():
         print("✅ Fatal limit guard verified.")
     else:
         print(f"❌ Fatal limit guard FAILED (Wait={wait_fatal})")
+
+    # 6. Test PERSISTENCE (Cooldown Restoration)
+    print("\n🧪 Testing Key Persistence...")
+    if key_val:
+        # Force a strike in memory/DB
+        km.report_failure(key_val)
+        km.db_client.close() # Close first instance
+        
+        # Init new instance
+        km2 = KeyManager(db_url, auth_token)
+        if key_val in km2.cooldown_keys:
+            print(f"✅ Persistence Verified: {key_name} restored to cooldown.")
+        else:
+            print(f"❌ Persistence FAILED: {key_name} NOT on cooldown after restart.")
+        km2.db_client.close()
 
 if __name__ == "__main__":
     test_key_manager()

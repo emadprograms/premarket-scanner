@@ -1,0 +1,550 @@
+from __future__ import annotations
+
+import requests
+import json
+import re
+import time
+import logging
+from datetime import date, datetime
+import streamlit as st 
+
+# --- Core Module Imports ---
+# Adjusted to match actual project structure
+from backend.engine.gemini import API_BASE_URL 
+from backend.engine.key_manager import KeyManager
+from backend.engine.utils import AppLogger
+from backend.engine.database import get_db_connection
+
+# We need to resolve where get_or_compute_context comes from. 
+# For now, we will import it from a sibling file we are about to create, 
+# or implement a local version if it's simple.
+# The user's snippet expected: from backend.engine.analysis.impact_engine import get_or_compute_context
+try:
+    from backend.engine.analysis.impact_engine import get_or_compute_context
+except ImportError:
+    # Fallback to local stub if not yet created, but we plan to create it.
+    get_or_compute_context = None 
+
+# Constants placeholders if not in config
+DEFAULT_COMPANY_OVERVIEW_JSON = """
+{
+    "marketNote": "Executor's Battle Card: TICKER",
+    "confidence": "Neutral",
+    "screener_briefing": "Setup_Bias: Neutral\nJustification: Initializing.\nCatalyst: None\nPattern: None\nPlan_A: None\nPlan_A_Level: 0.0\nPlan_B: None\nPlan_B_Level: 0.0\nS_Levels: []\nR_Levels: []",
+    "basicContext": {
+        "tickerDate": "TICKER | Date",
+        "sector": "Technology",
+        "companyDescription": "Tech Company",
+        "priceTrend": "Neutral",
+        "recentCatalyst": "None"
+    },
+    "technicalStructure": {
+        "majorSupport": "None",
+        "majorResistance": "None",
+        "pattern": "None",
+        "volumeMomentum": "None",
+        "keyActionLog": []
+    },
+    "fundamentalContext": {
+        "valuation": "N/A",
+        "analystSentiment": "Neutral",
+        "insiderActivity": "None",
+        "peerPerformance": "Neutral"
+    },
+    "behavioralSentiment": {
+        "buyerVsSeller": "Neutral",
+        "emotionalTone": "Neutral",
+        "newsReaction": "Neutral"
+    },
+    "openingTradePlan": {
+        "planName": "None",
+        "knownParticipant": "None",
+        "expectedParticipant": "None",
+        "trigger": "None",
+        "invalidation": "None"
+    },
+    "alternativePlan": {
+        "planName": "None",
+        "scenario": "None",
+        "knownParticipant": "None",
+        "expectedParticipant": "None",
+        "trigger": "None",
+        "invalidation": "None"
+    }
+}
+"""
+
+DEFAULT_ECONOMY_CARD_JSON = """
+{
+  "marketNarrative": "Initializing Macro Context...",
+  "marketBias": "Neutral",
+  "keyEconomicEvents": {
+    "last_24h": "None",
+    "next_24h": "None"
+  },
+  "sectorRotation": {
+    "leadingSectors": [],
+    "laggingSectors": [],
+    "rotationAnalysis": "None"
+  },
+  "indexAnalysis": {
+    "pattern": "None",
+    "SPY": "None",
+    "QQQ": "None"
+  },
+  "interMarketAnalysis": {
+    "bonds": "None",
+    "commodities": "None",
+    "currencies": "None",
+    "crypto": "None"
+  },
+  "marketInternals": {
+    "volatility": "None"
+  },
+  "keyActionLog": []
+}
+"""
+
+from typing import Optional
+# --- The Robust API Caller (V8) ---
+def call_gemini_api(prompt: str, system_prompt: str, logger: AppLogger, model_name: str, key_manager: KeyManager, max_retries=3) -> Optional[str]:
+    """
+    Calls Gemini API using dynamic model selection and quota management.
+    Requires an explicit KeyManager instance for thread-safety.
+    """
+    if not key_manager:
+        logger.log("❌ ERROR: KeyManager not provided.")
+        return None
+    
+    # Estimate tokens for quota check
+    est_tok = key_manager.estimate_tokens(prompt + system_prompt)
+    logger.log(f"📝 Request Size Estimate: ~{est_tok} tokens")
+
+    for i in range(max_retries):
+        current_api_key = None
+        key_name = "Unknown"
+
+        try:
+            # 1. ACQUIRE: Request key specifically for this model's bucket
+            # Returns: (key_name, key_value, wait_time, real_model_id)
+            key_name, current_api_key, wait_time, real_model_id = key_manager.get_key(config_id=model_name, estimated_tokens=est_tok)
+            
+            if not current_api_key:
+                if wait_time == -1.0:
+                    logger.log(f"❌ FATAL: Prompt too large for {model_name} limits.")
+                    return None
+                
+                logger.log(f"⏳ All keys exhausted for {model_name}. Waiting {wait_time:.0f}s... (Attempt {i+1})")
+                if wait_time > 0 and i < max_retries - 1:
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.log(f"❌ ERROR: Global rate limit reached for {model_name}.")
+                    return None
+            
+            logger.log(f"🔑 Acquired '{key_name}' | Model: {model_name} (ID: {real_model_id}) (Attempt {i+1})")
+            
+            # 2. USE: Construct Dynamic URL using the internal model ID
+            gemini_url = f"{API_BASE_URL}/{real_model_id}:generateContent?key={current_api_key}"
+            
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}], 
+                "systemInstruction": {"parts": [{"text": system_prompt}]}
+            }
+            headers = {'Content-Type': 'application/json'}
+            
+            response = requests.post(gemini_url, headers=headers, data=json.dumps(payload), timeout=60)
+            
+            # 3. REPORT: Pass internal model_id for correct counter increment
+            if response.status_code == 200:
+                result = response.json()
+                
+                # V8 FIX: Use REAL usage data if available
+                usage_meta = result.get("usageMetadata", {})
+                real_tokens = usage_meta.get("totalTokenCount", est_tok) # fallback to estimate
+                
+                # Log the correction if significant
+                if real_tokens > est_tok * 1.2:
+                    logger.log(f"   ...Usage Correction: Est {est_tok} -> Real {real_tokens}")
+                    
+                key_manager.report_usage(current_api_key, tokens=real_tokens, model_id=real_model_id)
+
+                try:
+                    return result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                except (KeyError, IndexError):
+                    logger.log(f"⚠️ Invalid JSON Structure: {result}")
+                    key_manager.report_failure(current_api_key, is_info_error=True)
+                    continue 
+
+            elif response.status_code == 429:
+                err_text = response.text
+                if "limit: 0" in err_text or "Quota exceeded" in err_text:
+                    logger.log(f"⛔ BILLING ISSUE on '{key_name}'. Google says Quota is 0.")
+                    key_manager.report_failure(current_api_key, is_info_error=False) 
+                else:
+                    logger.log(f"⛔ 429 Rate Limit on '{key_name}'. Triggering 60s Cooldown.")
+                    key_manager.report_failure(current_api_key, is_info_error=False)
+            elif response.status_code >= 500:
+                logger.log(f"☁️ {response.status_code} Server Error. Waiting 10s...")
+                key_manager.report_failure(current_api_key, is_info_error=True)
+                time.sleep(10) # Give the server breathing room
+            else:
+                logger.log(f"⚠️ API Error {response.status_code}: {response.text}")
+                key_manager.report_failure(current_api_key, is_info_error=True)
+
+        except Exception as e:
+            logger.log(f"💥 Exception: {str(e)}")
+            if current_api_key:
+                key_manager.report_failure(current_api_key, is_info_error=True)
+        
+        if i < max_retries - 1:
+            time.sleep(2 ** i)
+
+    logger.log("❌ FATAL: Max retries exhausted.")
+    return None
+    
+
+# --- REFACTORED: update_company_card (PROMPT IS GOOD) ---
+def update_company_card(
+    ticker: str, 
+    previous_card_json: str, 
+    previous_card_date: str, 
+    historical_notes: str, 
+    new_eod_summary: str, 
+    new_eod_date: date, 
+    model_name: str,
+    key_manager: KeyManager, # Explicit
+    pre_fetched_context: str, # JSON String passed from main thread
+    market_context_summary: str, 
+    logger: AppLogger = None
+):
+    """
+    Generates an updated company overview card using AI.
+    """
+    if logger is None:
+        logger = AppLogger(None)
+
+    logger.log(f"--- Starting Company Card AI update for {ticker} ---")
+
+    try:
+        previous_overview_card_dict = json.loads(previous_card_json)
+        logger.log("1. Parsed previous company card.")
+    except (json.JSONDecodeError, TypeError):
+        logger.log("   ...Warn: Could not parse previous card. Starting from default.")
+        previous_overview_card_dict = json.loads(DEFAULT_COMPANY_OVERVIEW_JSON.replace("TICKER", ticker))
+
+    # --- Extract the keyActionLog from the previous card ---
+    previous_action_log = previous_overview_card_dict.get("technicalStructure", {}).get("keyActionLog", [])
+    if isinstance(previous_action_log, list):
+        recent_log_entries = previous_action_log[-5:]
+    else:
+        recent_log_entries = []
+
+    logger.log("2. Building EOD Note Generator Prompt...")
+    
+    # --- FINAL System Prompt ---
+    system_prompt = (
+        "You are an expert market structure analyst. Your *only* job is to apply the specific 4-Participant Trading Model provided in the user's prompt. "
+        "Your logic must *strictly* follow this model. You will be given a 'Masterclass' in the prompt that defines the model's philosophy. "
+        "Your job has **four** distinct analytical tasks: "
+        "1. **Analyze `behavioralSentiment` (The 'Micro'):** You MUST provide a full 'Proof of Reasoning' for the `emotionalTone` field. "
+        "2. **Analyze `technicalStructure` (The 'Macro'):** Use *repeated* participant behavior to define and evolve the *key structural zones*. "
+        "3. **Calculate `confidence` (The 'Story'):** You MUST combine the lagging 'Trend_Bias' with the 'Story_Confidence' (H/M/L) and provide a full justification. "
+        "4. **Calculate `screener_briefing` (The 'Tactic'):** You MUST synthesize your *entire* analysis to calculate a *new, separate, actionable* 'Setup_Bias' and assemble the final Python-readable data packet. "
+        "Do not use any of your own default logic. Your sole purpose is to be a processor for the user's provided framework."
+    )
+
+    
+    trade_date_str = new_eod_date.isoformat()
+
+    # --- IMPACT ENGINE INTEGRATION (Pre-Fetched) ---
+    impact_context_json = pre_fetched_context
+    logger.log(f"✅ Using Pre-Fetched Context for {ticker} (Length: {len(impact_context_json)})")
+
+    # --- FINAL Main 'Masterclass' Prompt ---
+    prompt = f"""
+    [Raw Market Context for Today]
+    (This contains RAW, unstructured news headlines and snippets from various sources. You must synthesize the macro "Headwind" or "Tailwind" yourself from this data. It also contains company-specific news.)
+    {market_context_summary or "No raw market news was provided."}
+
+    [Historical Notes for {ticker}]
+    (CRITICAL STATIC CONTEXT: These are the MAJOR structural levels. LEVELS ARE PARAMOUNT.)
+    {historical_notes or "No historical notes provided."}
+    
+    [Previous Card (Read-Only)]
+    (This is established structure, plans, and `keyActionLog` so far. Read this for the 3-5 day context AND to find the previous 'recentCatalyst' and 'fundamentalContext' data.) 
+    {json.dumps(previous_overview_card_dict, indent=2)}
+
+    [Log of Recent Key Actions (Read-Only)]
+    (This is the day-by-day story so far. Use this for context.)
+    {json.dumps(recent_log_entries, indent=2)}
+
+    [Today's New Price Action Summary (IMPACT CONTEXT CARD)]
+    (Use this structured 'Value Migration Log' and 'Impact Levels' to determine the 'Nature' of the session.)
+    {impact_context_json}
+
+    [Your Task for {trade_date_str}]
+    Your task is to populate the JSON template below. You MUST use the following trading model to generate your analysis.
+
+    --- START MASTERCLASS: THE 4-PARTICIPANT MODEL ---
+
+    **Part 1: The Core Philosophy (Exhaustion & Absence)**
+    This is the most important concept. Price moves are driven by the *absence* or *exhaustion* of one side, not just the *presence* of the other.
+    * **Price falls because:** Committed Buyers are **absent** (they are competing for a better, lower price).
+    * **Price rises because:** Committed Sellers are **absent** or **exhausted** (they have finished selling at a level).
+
+    **Part 2: The Two Market States (Stable vs. Unstable)**
+    * **1. Stable Market:** (Default) Driven by **Committed Participants**. A rational market focused on "exhaustion" at key levels.
+    * **2. Unstable Market:** (Exception) Driven by **Desperate Participants**. An emotional market, a *reaction* to a catalyst (news, panic, FOMO).
+
+    **Part 3: The Four Participant Types**
+    * **Committed Buyers:** Patiently accumulate at or below support.
+    * **Committed Sellers:** Patiently distribute at or above resistance.
+    * **Desperate Buyers:** (FOMO / Panic) Buy *aggressively* at *any* price.
+    * **Desperate Sellers:** (Panic / Capitulation) Sell *aggressively* at *any* price.
+
+    **Part 4: The 5 Key Patterns (How to Identify the State)**
+    1.  **Accumulation (Stable):** A *slow* fight at support, marked by **higher lows** as sellers become exhausted.
+    2.  **Capitulation (Unstable):** A *fast* vacuum, as **Desperate Sellers** sell and **Committed Buyers step away**.
+    3.  **Stable Uptrend (Stable):** Caused by **Absent/Exhausted Committed Sellers** at resistance, often followed by a "check" (retest) of the broken level.
+    4.  **Washout & Reclaim (Hybrid -> Unstable):** **Committed Buyers** let support break, then turn into **Desperate Buyers** to get filled, causing a *violent reversal*.
+    5.  **Chop (Stable):** Equilibrium. **Committed Buyers** defend the low, **Committed Sellers** defend the high. No one is desperate.
+
+    **Part 5: The 3 Levels of Story Confidence (The "Conviction" Score)**
+    This is your *separate* analysis of the day's *objective outcome*.
+    * **High Story_Confidence:** Today's action was **decisive and confirming**. It *either* 1) strongly *confirmed* the `Trend_Bias` AND *respected* a MAJOR S/R level, *or* 2) it achieved a *decisive, high-volume CLOSE* *beyond* a MAJOR S/R level.
+    * **Medium Story_Confidence:** Today's action was **mixed or indecisive**. This includes 1) closing *at* or *near* a major level, 2) a breakout/breakdown on *low, unconvincing volume*, or 3) a "Doji" or "inside day".
+    * **Low Story_Confidence:** Today's action was a **failure or reversal**. It *failed* at a key level and *reversed* *against* the `Trend_Bias` (e.g., a "failed breakout" that closed back inside the range).
+
+    --- END MASTERCLASS ---
+
+    **YOUR EXECUTION TASK (Filling the JSON):**
+
+    **1. Calculate `Trend_Bias`:**
+        * First, determine the **lagging, multi-day `Trend_Bias`** using the rule: "Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level."
+
+    **2. `confidence` (The "Story"):**
+        * This is your *first* output field. You MUST combine the `Trend_Bias` (from Step 1) with the `Story_Confidence` (from Masterclass Part 5) and provide a "Proof of Reasoning."
+        * **Final Format:** "Trend_Bias: [Your calculated Trend_Bias] (Story_Confidence: [High/Medium/Low]) - Reasoning: [Your justification for the H/M/L rating]."
+        * **Example:** "Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend. It *failed* at $265 resistance and reversed, but the 'Accumulation' pattern means the breakdown itself has failed, matching the 'Low Confidence' definition."
+
+    **3. `basicContext.recentCatalyst` (The "Governing Narrative"):**
+        * Manage this as the **cumulative story**.
+        * **Step 1:** Read the `recentCatalyst` from the `[Previous Card]`.
+        * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for any *company-specific* news.
+        * **Step 3 (Execute):**
+            * **If new info:** **Append** it to the previous narrative.
+            * **If no new info:** **Carry over** the *entire, unchanged* narrative from the `[Previous Card]`.
+
+    **4. `fundamentalContext` (Dynamic Fields):**
+        * **`valuation`:** "AI RULE: READ-ONLY".
+        * **`analystSentiment` & `insiderActivity`:**
+            * **Step 1:** Read from `[Previous Card]`.
+            * **Step 2:** *Hunt* the `[Overall Market Context for Today]` for new analyst ratings or insider transactions.
+            * **Step 3 (Execute):** **Update** if new info is found, otherwise **carry over** the unchanged data.
+
+    **5. `technicalStructure` Section (The "Macro" / Zone Analysis):**
+        * **`majorSupport` / `majorResistance`:**
+            * Your base is `[Historical Notes]`.
+            * You MUST *evolve* these fields based on *repeated* participant action from the `[Log of Recent Key Actions]`.
+            * **Rule:** If 'Committed Buyers' defend a *new* level for 2-3 days, you MUST add it as a 'New tactical support'.
+            * **Rule:** If a `Historical Note` level is broken and *held* for 2-3 days, you MUST re-label it (e.g., '$265 (Old Resistance, now 'Stable Market' support)').
+        * **`pattern` (The "Structural Narrative"):**
+            * This is the **multi-day structural story** *relative to the zones*.
+            * (e.g., "Price is in a 'Balance (Chop)' pattern, coiling between the Committed Buyer zone at $415 and the Committed Seller zone at $420.")
+
+    **6. `technicalStructure.volumeMomentum` (The "Volume Analysis"):**
+        * **This is your next analysis.** Your job is to be the volume analyst.
+        * Describe ONLY how volume from `[Today's New Price Action Summary]` *confirmed or denied* the action *at the specific levels*.
+        * **Example 1 (Confirmation):** "High-volume defense. The rejection of the $239.15 low was confirmed by the day's highest volume spike, proving Committed Buyers were present in force."
+        * **Example 2 (No Confirmation):** "Low-volume breakout. The move above $420 resistance was on low, unconvincing volume, signaling a 'Stable Market' (Committed Seller) exhaustion, not 'Unstable' (Desperate Buyer) panic."
+
+    **7. `behavioralSentiment` Section (The "Micro" / Today's Analysis):**
+        * **`emotionalTone` (The 3-Act Pattern + Proof of Reasoning):**
+            * This is your **Justification**, not a description. You MUST show your work by analyzing the **3-Part Session Arc** (`Pre-Market` -> `RTH` -> `Post-Market`):
+            * **1. Act I (Intent):** What did `sessions.pre_market` try to do? (e.g., "Bulls attempted a gap up...").
+            * **2. Act II (The Conflict - RTH):** Did `sessions.regular_hours` validate or invalidate that intent? Analyze the 'Value Migration'. (e.g., "...but RTH invalidated the gap immediately, migrating value LOWER on high volume.").
+            * **3. Act III (Resolution):** How did `sessions.post_market` close? (e.g., "Weak close near lows confirms rejection.").
+            * **Then, label the psychological event.**
+            * **Final Format:** "Label - Reasoning: [Your full 3-Act proof]"
+            * **Example:** "Accumulation (Stable) - Reasoning: **(Act I)** Pre-market held support. **(Act II)** RTH confirmed this by defending the low and migrating value higher into a 'Wide Expansion' range. **(Act III)** Post-market held gains. This consistency signals **Committed Buyers** are in control."
+        * **`newsReaction` (The Surprise / Correlation Analysis):**
+            * **You MUST detect the 'Disconnect':** Compare the **Pre-Market News Theme** vs. the **RTH Price Response**.
+            * **Scenario A (Validation):** News was Bad -> Price Sold Off. (Standard Headwind).
+            * **Scenario B (Surprise/Invalidation - CRITICAL):** News was Bad (e.g., 'Sell America' theme in Pre-Market) -> **Price IGNORED it and Rallied** (RTH). 
+            * **Rule:** If price *invalidates* the news theme, you MUST label this as a **MAJOR SIGNAL** of underlying conviction. (e.g., "Bullish Surprise - Stock ignored the 'Sell America' pre-market theme and rallied, proving extreme relative strength.").
+        * **`buyerVsSeller` (The Conclusion):**
+            * This is your *final synthesis* of the `emotionalTone` and `newsReaction`.
+            * (e.g., "Committed Buyers are in firm control. They not only showed a 'Stable Accumulation' pattern at $415 but did so *against* a weak, bearish market, confirming their high conviction.")
+
+    **8. `keyActionLog`:** Write your `todaysAction` log entry *last*, using the language from your `behavioralSentiment` analysis.
+    **9. `openingTradePlan` & `alternativePlan`:** Update these for TOMORROW.
+
+    **10. `screener_briefing` (The "Data Packet" for Python):**
+        * This is your **final** task. You will generate the data packet *after* all other analysis is complete.
+        * **Step 1: Calculate the `Setup_Bias` (Master Synthesis Rule):**
+            * Your `Setup_Bias` for *this field only* MUST be a *synthesis* of your `pattern` (Macro) and `emotionalTone` (Micro) findings.
+            * **Rule 1 (Change of Character):** If today's `emotionalTone` (e.g., 'Accumulation') *contradicts* the `Trend_Bias` (e.g., 'Bearish'), the **`emotionalTone` takes precedence.** The `Setup_Bias` *must* reflect this *new change* in market character.
+                * *(Example: `emotionalTone: 'Accumulation'` at support MUST result in a `Setup_Bias: Neutral` or `Neutral (Bullish Lean)`.)*
+            * **Rule 2 (Use Relative Strength):** Use your `newsReaction` (relative strength/weakness) to "shade" the bias.
+                * *(Example: `emotionalTone: 'Accumulation'` + `newsReaction: 'Extreme Relative Strength'` = `Setup_Bias: Neutral (Bullish Lean)` or `Bullish`.)*
+        * **Step 2: Summarize the `Catalyst`:**
+            * Create a clean, one-line summary of the "Governing Narrative" you already built for the `recentCatalyst` field.
+            * **Example:** "Post-earnings consolidation and new AI deal."
+        * **Step 3: Assemble the "Data Packet":**
+            * You *must* output a multi-line string in the *exact* key-value format specified below.
+            * For `Plan_A_Level` and `Plan_B_Level`, extract the *primary* price level from the `trigger`.
+            * For `S_Levels` and `R_Levels`, extract *all* numerical price levels from `technicalStructure.majorSupport` and `technicalStructure.majorResistance`. Format them as a comma-separated list *inside brackets*.
+        * **Exact Output Format:**
+        Setup_Bias: [Your *newly calculated* 'Setup Bias' from Step 1]
+        Justification: [Your 'Proof of Reasoning' for the Setup_Bias, e.g., "Today's 'Accumulation' by 'Committed Buyers' (40% weight) contradicts the multi-day 'Breakdown' (60% weight), signaling seller exhaustion and forcing a 'Neutral' bias."]
+        Catalyst: [Your new *one-line summary* of the 'Governing Narrative']
+        Pattern: [Your 'Structural Narrative' from technicalStructure.pattern]
+        Plan_A: [The 'planName' from openingTradePlan]
+        Plan_A_Level: [Extracted level from Plan A's trigger]
+        Plan_B: [The 'planName' from alternativePlan]
+        Plan_B_Level: [Extracted level from Plan B's trigger]
+        S_Levels: [Your extracted list of support levels, e.g., $266.25, $264.00]
+        R_Levels: [Your extracted list of resistance levels, e.g., $271.41, $275.00]
+
+    **CRITICAL ANALYTICAL RULES (LEVELS ARE PARAMOUNT):**
+    * **Bias:** (This rule is *only* for the `Trend_Bias` calculation in Task 1. Do not use it for the `Setup_Bias` in Task 10.) Maintain the `bias` from the [Previous Card] unless [Today's Action] *decisively breaks AND closes beyond* a MAJOR level.
+    * **Plans:** Update BOTH `openingTradePlan` and `alternativePlan` for TOMORROW.
+    * **Volume:** (This rule is now handled in Task 6).
+
+    [Output Format Constraint]
+    Output ONLY a single, valid JSON object in this exact format. **You must populate every single field designated for AI updates.**
+
+    {{
+      "marketNote": "Executor's Battle Card: {ticker}",
+      "confidence": "Your **'Story' Label + Proof of Reasoning** (e.g., 'Trend_Bias: Bearish (Story_Confidence: Low) - Reasoning: The action was a *failure* against the Bearish trend...').",
+      "screener_briefing": "Your **10-Part Regex-Friendly 'Data Packet'** (Setup_Bias, Justification, Catalyst, Pattern, Plan A, Plan B, S_Levels, R_Levels).",
+      "basicContext": {{
+        "tickerDate": "{ticker} | {trade_date_str}",
+        "sector": "Set in Static Editor / Preserved",
+        "companyDescription": "Set in Static Editor / Preserved",
+        "priceTrend": "Your new summary of the cumulative trend.",
+        "recentCatalyst": "Your 'Governing Narrative' (e.g., 'Post-earnings digestion continues; today's news confirmed...' or 'Awaiting Fed tariffs...')"
+      }},
+      "technicalStructure": {{
+        "majorSupport": "Your *evolved* list of support zones, based on Historical Notes + new, multi-day Committed Buyer levels.",
+        "majorResistance": "Your *evolved* list of resistance zones, based on Historical Notes + new, multi-day Committed Seller levels.",
+        "pattern": "Your **'Structural Narrative'** (multi-day) describing the battle between these zones (e.g., 'Consolidating above $265...').",
+        "volumeMomentum": "Your **Volume Analysis** from Task 6 (e.g., 'High-volume defense. The rejection of $239.15...')."
+      }},
+      "fundamentalContext": {{
+        "valuation": "AI RULE: READ-ONLY (Set during initialization/manual edit)",
+        "analystSentiment": "Carry over from [Previous Card] UNLESS new analyst ratings are found in [Overall Market Context].",
+        "insiderActivity": "Carry over from [Previous Card] UNLESS new insider activity is found in [Overall Market Context].",
+        "peerPerformance": "How did this stock perform *relative to its sector* or the `[Overall Market Context]`?"
+      }},
+      "behavioralSentiment": {{
+        "buyerVsSeller": "Your **Conclusion** (e.g., 'Committed Buyers in control, having proven strength against a macro headwind...').",
+        "emotionalTone": "Your **Pattern + Proof of Reasoning** (e.g., 'Accumulation (Stable) - Reasoning: (1. Observation) Price formed a higher low. (2. Inference) This is not a vacuum, it proves buyers are competing. (3. Conclusion) This signals seller exhaustion...').",
+        "newsReaction": "Your **Headwind/Tailwind Analysis** (e.g., 'Showed extreme relative strength by holding support *despite* the bearish macro context...')."
+      }},
+      "openingTradePlan": {{
+        "planName": "Your new primary plan for the *next* open (e.g., 'Long from $266.25 Support').",
+        "knownParticipant": "Who is confirmed at the level, per your model? (e.g., 'Committed Buyers at $266').",
+        "expectedParticipant": "Who acts if trigger hits? (e.g., 'Desperate Buyers (FOMO) on a break of $271').",
+        "trigger": "Specific price action validating this plan.",
+        "invalidation": "Price action proving this plan WRONG."
+      }},
+      "alternativePlan": {{
+        "planName": "Your new competing plan (e.g., 'Failure at $271 Resistance').",
+        "scenario": "When does this plan become active?",
+        "knownParticipant": "Who is confirmed if scenario occurs?",
+        "expectedParticipant": "Who acts if trigger hits?",
+        "trigger": "Specific price action validating this plan.",
+        "invalidation": "Price action proving this plan WRONG."
+      }},
+      "todaysAction": "A single, detailed log entry for *only* today's action, *using the language from your Masterclass analysis*."
+    }}
+    """
+    
+    logger.log(f"3. Calling EOD AI Analyst for {ticker}...");
+    print(f"[DEBUG] {ticker}: Prompt Length: {len(prompt)} chars. KeyManager Provided: {key_manager is not None}")
+    
+    ai_response_text = call_gemini_api(prompt, system_prompt, logger, model_name=model_name, key_manager=key_manager)
+    
+    if not ai_response_text: 
+        print(f"[DEBUG] {ticker}: NO AI RESPONSE RECEIVED.")
+        logger.log(f"Error: No AI response for {ticker}."); 
+        return None
+    
+    print(f"[DEBUG] {ticker}: AI Response Received ({len(ai_response_text)} chars). Parsing...")
+    logger.log(f"4. Received EOD Card for {ticker}. Parsing & Validating...")
+    
+    json_match = re.search(r"```json\s*([\s\S]+?)\s*```", ai_response_text)
+    if json_match:
+        print(f"[DEBUG] {ticker}: JSON Code Block Found.")
+        ai_response_text = json_match.group(1)
+    else:
+        print(f"[DEBUG] {ticker}: No JSON Block. Attempting raw parse.")
+        ai_response_text = ai_response_text.strip()
+    
+    try:
+        ai_data = json.loads(ai_response_text)
+        new_action = ai_data.pop("todaysAction", None)
+        
+        if not new_action:
+            logger.log("Error: AI response is missing required fields ('todaysAction').")
+            logger.log("--- DEBUG: RAW AI OUTPUT ---")
+            return None
+        
+        # --- FIX: Rebuild the full card in Python ---
+        
+        # 1. Get a fresh copy of the *previous* card
+        final_card = previous_overview_card_dict.copy()
+        
+        # 2. **Deeply update** the card with the new AI data
+        # This merges the new data (plans, sentiment) while preserving read-only fields
+        def deep_update(d, u):
+            for k, v in u.items():
+                if isinstance(v, dict):
+                    d[k] = deep_update(d.get(k, {}), v)
+                else:
+                    d[k] = v
+            return d
+        
+        final_card = deep_update(final_card, ai_data)
+        
+        # 3. Manually update fields the AI shouldn't control
+        final_card['basicContext']['tickerDate'] = f"{ticker} | {trade_date_str}"
+        
+        # 4. Programmatically append to the log
+        if "technicalStructure" not in final_card:
+            final_card['technicalStructure'] = {}
+        if "keyActionLog" not in final_card['technicalStructure'] or not isinstance(final_card['technicalStructure']['keyActionLog'], list):
+            final_card['technicalStructure']['keyActionLog'] = []
+            
+        # --- Remove the old, deprecated 'keyAction' field if it exists ---
+        if 'keyAction' in final_card['technicalStructure']:
+            del final_card['technicalStructure']['keyAction']
+
+        # Prevent duplicate entries if re-running
+        if not any(entry.get('date') == trade_date_str for entry in final_card['technicalStructure']['keyActionLog']):
+            final_card['technicalStructure']['keyActionLog'].append({
+                "date": trade_date_str,
+                "action": new_action
+            })
+        else:
+            logger.log("   ...Log entry for this date already exists. Overwriting.")
+            # Find and overwrite the existing entry
+            for i, entry in enumerate(final_card['technicalStructure']['keyActionLog']):
+                if entry.get('date') == trade_date_str:
+                    final_card['technicalStructure']['keyActionLog'][i] = {
+                        "date": trade_date_str,
+                        "action": new_action
+                    }
+                    break
+
+        logger.log(f"--- Success: AI update for {ticker} complete. ---")
+        return json.dumps(final_card, indent=4) # Return the full, new card
+
+    except json.JSONDecodeError as e:
+        logger.log(f"Error: Failed to decode AI response JSON for {ticker}. Details: {e}")
+        return None
+    except Exception as e:
+        logger.log(f"Unexpected error validating AI response for {ticker}: {e}")
+        return None

@@ -6,8 +6,8 @@ import os
 # Add parent dir to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from modules.analysis.macro_engine import summarize_rolling_log, generate_economy_card_prompt
-from modules.utils import AppLogger
+from backend.engine.analysis.macro_engine import summarize_rolling_log, generate_economy_card_prompt
+from backend.engine.utils import AppLogger
 
 class TestAnalysisEngines(unittest.TestCase):
     
@@ -46,10 +46,9 @@ class TestAnalysisEngines(unittest.TestCase):
             eod_card, etf_structures, news, date_str, self.logger
         )
         
-        self.assertIn("60/40 Synthesis", system_prompt)
-        self.assertIn("3-Act Structure", system_prompt)
-        self.assertIn("[1. Previous Closing Context", prompt)
-        self.assertIn("[4. Core Indices Structure", prompt)
+        self.assertIn("Senior Market Analyst", system_prompt)
+        self.assertIn("Executive Briefing", system_prompt)
+        self.assertIn("Narrative Clarity", system_prompt)
         self.assertIn("SPY", prompt)
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # We mock out call_gemini_api since it makes network requests
 from unittest.mock import MagicMock, patch
-import modules.analysis.detail_engine as detail_engine
+import backend.engine.analysis.detail_engine as detail_engine
 
 class TestDetailEngine(unittest.TestCase):
     
@@ -30,7 +30,7 @@ class TestDetailEngine(unittest.TestCase):
         }
         
         # Mocking call_gemini_api to return our dummy JSON
-        with patch('modules.analysis.detail_engine.call_gemini_api') as mock_api:
+        with patch('backend.engine.analysis.detail_engine.call_gemini_api') as mock_api:
             mock_api.return_value = json.dumps(ai_response)
             
             result_json = detail_engine.update_company_card(

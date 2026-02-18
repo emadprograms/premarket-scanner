@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import unittest
-from modules.utils import AppLogger
+from backend.engine.utils import AppLogger
 
 class TestAppLogger(unittest.TestCase):
     def test_log(self):
