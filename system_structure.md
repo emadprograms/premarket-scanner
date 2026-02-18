@@ -12,37 +12,48 @@ Located in `backend/`:
     *   `macro.py`: Handles Step 0 related logic (Economy Card).
     *   `scanner.py`: Handles Step 1 related logic (Data fetching and analysis).
     *   `ranking.py`: Handles Step 3 related logic (Ranking setups).
-*   **`services/`**: Helper services (e.g., `socket_manager.py` for real-time logging).
+    *   `system.py`: System health checks and context management.
+*   **`services/`**: Helper services.
+    *   `context.py`: Singleton management for Database and keys.
+    *   `logger.py`: Centralized logging service.
+    *   `socket_manager.py`: Real-time WebSocket communication.
 *   **`engine/`**: **THE CORE BRAIN**. 
-    *   **`processing.py`**: The heart of the technical analysis. Detects impact levels and routes data.
+    *   **`processing.py`**: The heart of the technical analysis. Detects impact levels, routes data (Capital -> Yahoo -> DB), and calculates staleness.
     *   **`analysis/macro_engine.py`**: Implements the **60/40 Synthesis** and distillation of historical logs.
     *   **`analysis/detail_engine.py`**: Generates tactical "Company Battle Cards".
-    *   **`database.py`**: Manages Turso and local caching.
+    *   **`capital_api.py`**: Handles Capital.com session management and data fetching.
+    *   **`database.py`**: Manages Turso interactions and local caching.
     *   **`key_manager.py`**: V8 model rotation and rate limiting.
+    *   **`sync_engine.py`**: Logic for synchronizing state or data.
+    *   **`sentiment_engine.py`**: Placeholder for future sentiment analysis features.
 
 ### B. The Front-End (Next.js)
 Located in `frontend/`:
-*   **`src/app/`**: The modern web interface.
-    *   `page.tsx`: The main cockpit for morning operations.
-    *   `scanner/`: Real-time proximity scanning UI.
-    *   `ranking/`: The Head Trader synthesis and ranking UI.
-*   **`src/components/`**: Reusable UI components (Economic Cards, Battle Cards, Charts).
+*   **`src/app/`**: The Next.js App Router structure.
+    *   `page.tsx`: Single-page entry point.
+    *   `layout.tsx`: Root layout definition.
+*   **`src/components/layout/`**:
+    *   **`MissionControl.tsx`**: The main cockpit ("Commander"). Orchestrates the Economy Card, Scanner Grid, and Ranking view in a single unified interface.
+    *   `Shell.tsx`: Application shell/wrapper.
+*   **`src/components/ui/`**: Reusable UI atoms and molecules.
 
 ### C. Legacy & Archive
-*   **`archive/legacy_streamlit/`**: Contains the previous monolithic implementation (`app.py` and `pages/`).
-*   **`archive/legacy_streamlit/app.py`**: Former production cockpit (Streamlit).
+*   **`archive/`**: Contains previous implementations and deprecated files.
 
 ## 3. The Data Flow Pipeline
 
-1.  **Ingestion**: Market Data (1-min bars) into Turso via `backend/engine/capital_api.py`.
-2.  **API Request**: Frontend sends requests to FastAPI routers (`/api/macro`, `/api/scanner`).
+1.  **Ingestion**: 
+    *   Primary: **Capital.com API** (Real-time).
+    *   Secondary: **Yahoo Finance** (Fallback if Capital fails/missing data).
+    *   Tertiary: **Turso DB** (Historical/Simulation mode).
+2.  **API Request**: Frontend (`MissionControl`) sends requests to FastAPI routers (`/api/macro`, `/api/scanner/scan`).
 3.  **Context Construction** (`macro_engine.py`):
     *   Previous Economy Card (60% weight).
     *   News & Sector ETFs (40% weight).
     *   Summarized Action Log (Macro Arc).
-4.  **Stock Deep Dive** (`detail_engine.py`):
+4.  **Stock Deep Dive** (`processing.py` + `detail_engine.py`):
     *   Price Action (Value Migration + Impact Levels).
-    *   Macro Alignment.
+    *   Staleness Checks (Gap Guard).
 5.  **Final Ranking** (`ranking.py`):
     *   Synthesizes Economy Card + Battle Cards into prioritized trade plans.
 6.  **Real-Time Feedback**: Progress logs pushed to the frontend via WebSockets (`/ws/logs`).
@@ -67,7 +78,6 @@ Analysis is broken into:
 
 ## 6. The Ranking Engine (Head Trader Synthesis)
 The **Ranking Engine** (Step 3) takes potential setups and ranks them using a **3-Layer Validation Model**:
-
 1.  **Macro Alignment (The Wind)**: Does the trade align with the day's broad market bias?
 2.  **Strategic Confluence (The Map)**: Is price interacting with a level we *planned* for in the EOD Card?
 3.  **Tactical Reality (The Terrain)**: Is the price *actually* respecting the level right now (Migration Blocks, Rejections)?
@@ -80,19 +90,22 @@ The **Ranking Engine** (Step 3) takes potential setups and ranks them using a **
 ### B. The "Weekend Wall"
 *   **Solution**: Fallback to higher resolutions (15m, 1h) or DB-only mode when 1m data is unavailable during market close.
 
-### C. DB Fallback
-*   **Solution**: Bypasses live API failures by utilizing Turso historical data to maintain operational "Hot Desks".
+### C. Data Fallback Strategy (The "Gap Guard")
+*   **Primary**: Capital.com.
+*   **Fallback**: Yahoo Finance (for missing tickers or API failures).
+*   **Safety**: Stale data (>60m old in pre-market) is discarded to prevent stale analysis.
+*   **Ultimate**: If all live sources fail, system falls back to Turso DB "Hot Desks" (EOD plans).
 
 ## 8. The Anchor & Delta Framework (Narrative Momentum)
 *   **The Anchor (EOD Card)**: Defines the "Prior Belief".
 *   **The Delta (Live/Pre-Market)**: Captures evidence of break or validation from today's action.
 *   **Integrity Test**: Binary check (HOLDING vs. BREAKING) to determine if pre-built plans are still valid.
 
-## 9. The Step 1 Unified Workflow & Gap Guard
-The system uses a **Gap Guard** to prevent wasted LLM credits:
-1.  **Staleness Check**: If data is >1 hour old, the system pauses.
-2.  **Gap Detection**: If critical tickers (QQQ, SPY) fail, the AI call is blocked.
-3.  **User Consent**: User must manually click "Proceed Anyway" if data issues are detected.
+## 9. The Step 1 Unified Workflow
+1.  **Check**: Is Live Data Fresh? (Staleness < 60m).
+2.  **Fetch**: Capital -> Yahoo -> DB.
+3.  **Analyze**: Generate Observation Card (Migrations, Impact Levels).
+4.  **Rank**: Apply Head Trader logic.
 
 ## 10. The Psychological Framework (The "Senior Analyst" Mindset)
 *   **Institutional Voice**: AI sounds like a professional desk lead, not an academic.

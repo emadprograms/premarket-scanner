@@ -12,3 +12,6 @@ matplotlib
 python-dotenv
 pytz
 watchdog
+fastapi>=0.111.0
+uvicorn>=0.29.0
+python-multipart
