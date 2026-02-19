@@ -65,8 +65,7 @@ class InfisicalManager:
                 environment=self.infisical_env,
                 path="/"
             ))
-            # NOTE: Use snake_case for attribute access (.secret_value, NOT .secretValue)
-            return secret.secret_value 
+            return getattr(secret, "secret_value", getattr(secret, "secretValue", None)) 
         except Exception as e:
             # Fallback to standard environment variable
             return os.getenv(secret_name)
@@ -80,6 +79,6 @@ class InfisicalManager:
                 environment=environment,
                 path="/"
             ))
-            return secret.secret_value 
+            return getattr(secret, "secret_value", getattr(secret, "secretValue", None))
         except Exception as e:
             return None

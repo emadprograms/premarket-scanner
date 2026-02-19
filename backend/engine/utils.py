@@ -67,7 +67,13 @@ def get_turso_credentials():
                         path="/",
                         include_imports=True
                     ))
-                    secret_names = [s.secret_name for s in all_secrets]
+                    
+                    # Be resilient to naming (secret_name vs secretName)
+                    secret_names = []
+                    for s in all_secrets:
+                        name = getattr(s, "secret_name", getattr(s, "secretName", None))
+                        if name: secret_names.append(name)
+                    
                     print(f"🔍 Infisical Debug: Visible Secret Names in '{env}': {secret_names}")
                     
                     # Try to fetch
