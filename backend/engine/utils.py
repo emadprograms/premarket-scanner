@@ -62,9 +62,12 @@ def get_turso_credentials():
         if not auth_token:
             auth_token = os.getenv("TURSO_AUTH_TOKEN")
             
-        if db_url and auth_token:
-            # Ensure protocol is handled correctly for raw HTTP if needed
-            # but usually libsql clients handle libsql:// addresses.
+            # Ensure protocol is handled correctly. Force https:// for cloud compatibility.
+            if db_url.startswith("libsql://"):
+                db_url = db_url.replace("libsql://", "https://")
+            elif not db_url.startswith("https://") and not db_url.startswith("http://"):
+                db_url = f"https://{db_url}"
+                
             return db_url, auth_token
         else:
             print("[ERROR] Database credentials missing (TURSO_DB_URL/TURSO_AUTH_TOKEN)")
