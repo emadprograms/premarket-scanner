@@ -142,6 +142,9 @@ class KeyManager:
     FATAL_STRIKE_COUNT = 999
 
     def __init__(self, db_url: str, auth_token: str):
+        if not db_url:
+            raise ValueError("KeyManager cannot initialize: db_url is missing. Check your credentials.")
+        
         self.raw_http_base = db_url.replace("libsql://", "https://")
         self.db_url = db_url
         self.auth_token = auth_token

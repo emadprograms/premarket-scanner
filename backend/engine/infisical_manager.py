@@ -11,6 +11,7 @@ class InfisicalManager:
         client_id = os.getenv("INFISICAL_CLIENT_ID")
         client_secret = os.getenv("INFISICAL_CLIENT_SECRET")
         self.project_id = os.getenv("INFISICAL_PROJECT_ID")
+        self.infisical_env = os.getenv("INFISICAL_ENV", "dev")
         
         if not client_id:
             try:
@@ -61,7 +62,7 @@ class InfisicalManager:
             secret = self.client.getSecret(options=GetSecretOptions(
                 secret_name=secret_name,
                 project_id=self.project_id,
-                environment="dev",
+                environment=self.infisical_env,
                 path="/"
             ))
             # NOTE: Use snake_case for attribute access (.secret_value, NOT .secretValue)

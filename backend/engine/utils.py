@@ -53,15 +53,19 @@ def get_turso_credentials():
         auth_token = None
         
         if mgr.is_connected:
+            # Try long slugs first
             db_url = mgr.get_secret("turso_emadprograms_analystworkbench_DB_URL")
             auth_token = mgr.get_secret("turso_emadprograms_analystworkbench_AUTH_TOKEN")
+            
+            # Fallback to standard names in Infisical
+            if not db_url: db_url = mgr.get_secret("TURSO_DB_URL")
+            if not auth_token: auth_token = mgr.get_secret("TURSO_AUTH_TOKEN")
         
         # 2. Fallback to direct Environment Variables
-        if not db_url:
-            db_url = os.getenv("TURSO_DB_URL")
-        if not auth_token:
-            auth_token = os.getenv("TURSO_AUTH_TOKEN")
+        if not db_url: db_url = os.getenv("TURSO_DB_URL")
+        if not auth_token: auth_token = os.getenv("TURSO_AUTH_TOKEN")
             
+        if db_url and auth_token:
             # Ensure protocol is handled correctly. Force https:// for cloud compatibility.
             if db_url.startswith("libsql://"):
                 db_url = db_url.replace("libsql://", "https://")
