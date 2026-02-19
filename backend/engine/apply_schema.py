@@ -1,4 +1,3 @@
-import streamlit as st
 import libsql_client
 import sys
 import os
