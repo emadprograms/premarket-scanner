@@ -11,6 +11,11 @@ class AppContext:
         self.db_url, self.auth_token = get_turso_credentials()
         self.turso = get_db_connection(self.db_url, self.auth_token)
         self.key_manager = KeyManager(self.db_url, self.auth_token)
+
+        # Ensure DB Schema is initialized
+        from backend.engine.database import init_db_schema
+        from backend.engine.utils import AppLogger
+        init_db_schema(self.turso, AppLogger(None))
         
         # Auto-Sync Keys from Infisical on Startup (Background Thread)
         def run_sync():

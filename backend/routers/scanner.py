@@ -16,9 +16,7 @@ from backend.engine.processing import get_session_bars_routed, get_previous_sess
 
 router = APIRouter()
 
-# --- In-memory cache for /history endpoint ---
-# Key: (ticker, days_rounded) -> {"data": [...], "expires_at": datetime}
-_history_cache: dict = {}
+# --- Scanner Routers ---
 
 
 def extract_plan_price(text: str) -> Optional[float]:
@@ -377,73 +375,4 @@ async def run_deep_dive(request: DeepDiveRequest, background_tasks: BackgroundTa
     return GenericResponse(status="success", message="Deep Dive feature port in progress")
 
 
-@router.get("/history/{ticker}")
-async def get_ticker_history(ticker: str, days: float = 5.0, simulation_cutoff: str = None):
-    """
-    Serves historical OHLCV data for the custom chart.
-    Respects simulation_cutoff to prevent leaking future data.
-    """
-    try:
-        turso = context.get_db()
-        # Default to now if no simulation time provided
-        if not simulation_cutoff:
-            simulation_cutoff = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
-        print(f"DEBUG: /history/{ticker} requested with cutoff={simulation_cutoff} days={days}")
-
-        # --- Cache Check ---
-        cache_key = (ticker.upper(), round(days, 1))
-        cached = _history_cache.get(cache_key)
-        if cached and datetime.utcnow() < cached["expires_at"]:
-            print(f"DEBUG: /history/{ticker} served from cache")
-            return {"status": "success", "data": cached["data"], "cached": True}
-
-        # --- Fetch from Capital.com ---
-        df, _ = get_session_bars_routed(
-            turso, ticker, 
-            benchmark_date_str=None, # Not needed for pure history
-            cutoff_str=simulation_cutoff, # FIXED: Param name is cutoff_str
-            mode="Live", # FIXED: User requested Capital.com data (Live)
-            logger=None, 
-            db_fallback=False, 
-            premarket_only=False, 
-            days=days, 
-            resolution="MINUTE_5"
-        )
-        
-        print(f"DEBUG: get_session_bars_routed returned df shape: {df.shape if df is not None else 'None'}")
-        if df is not None and not df.empty:
-             print(f"DEBUG: df head: {df.head()}")
-             print(f"DEBUG: df tail: {df.tail()}")
-
-        if df is None or df.empty:
-            return {"status": "error", "message": "No data found", "data": []}
-
-        # Format for lightweight-charts: { time: string/timestamp, open, high, low, close }
-        # df should have 'dt_utc' or similar. get_session_bars_routed ensures standardized cols.
-        
-        chart_data = []
-        for _, row in df.iterrows():
-            # lightweight-charts expects seconds for unix timestamp
-            ts = int(row['dt_utc'].timestamp()) if 'dt_utc' in row else int(row.name.timestamp())
-            chart_data.append({
-                "time": ts,
-                "open": float(row['Open']),
-                "high": float(row['High']),
-                "low": float(row['Low']),
-                "close": float(row['Close']),
-                "volume": int(row['Volume']) if 'Volume' in row else 0
-            })
-            
-        # Store in cache (4-hour TTL — valid for the entire trading session)
-        # Cache is cleared on backend restart (new program run)
-        _history_cache[cache_key] = {
-            "data": chart_data,
-            "expires_at": datetime.utcnow() + timedelta(hours=4)
-        }
-        print(f"DEBUG: /history/{ticker} cached ({len(chart_data)} bars, valid for 4h)")
-
-        return {"status": "success", "data": chart_data, "cached": False}
-
-    except Exception as e:
-        return {"status": "error", "message": str(e), "data": []}

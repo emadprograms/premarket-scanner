@@ -63,20 +63,32 @@ body {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
-/* Terminal Styles */
-.terminal-scroll::-webkit-scrollbar {
-  width: 6px;
+/* Global Scrollbar Aesthetics */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
 }
 
-.terminal-scroll::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.terminal-scroll::-webkit-scrollbar-thumb {
-  background: #27272a;
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
 }
 
-.terminal-scroll::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Firefox Support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.05) transparent;
+}
+
+/* Terminal Styles */
+.terminal-scroll {
+  @apply overflow-y-auto;
 }

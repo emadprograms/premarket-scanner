@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Card, Button, Badge } from '@/components/ui/core';
 import { Modal } from '@/components/ui/Modal';
-import { CustomChartModal } from '@/components/ui/CustomChartModal';
 import {
   Search,
   Play,
@@ -30,6 +29,9 @@ import { socketService } from '@/lib/socket';
 import { runMacroAnalysis, runSelectionScan, runRankingSynthesis, getWatchlistStatus } from '@/lib/api';
 import { useMission } from '@/lib/context';
 import { MissionControl } from '@/components/layout/MissionControl';
+import WorkbenchView from '@/components/layout/WorkbenchView';
+import CardEditorView from '@/components/layout/CardEditorView';
+import CompanyCardView from '@/components/layout/CompanyCardView';
 
 const Tooltip = ({ text }: { text: string }) => (
   <div className="group relative ml-1.5 inline-block">
@@ -54,7 +56,6 @@ export default function UnifiedCommandPage() {
   const [marketData, setMarketData] = useState<any[]>([]);
   const [marketCards, setMarketCards] = useState<Record<string, any>>({}); // Promoted to state
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null); // For Modal
-  const [chartTicker, setChartTicker] = useState<string | null>(null); // For Chart Modal
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [activeAlert, setActiveAlert] = useState<any>(null);
   const [cardCoverage, setCardCoverage] = useState<any[]>([]);
@@ -286,8 +287,11 @@ export default function UnifiedCommandPage() {
     }
   };
 
+  if (settings.workstation === 'Workbench') return <WorkbenchView />;
+  if (settings.workstation === 'Archive') return <CardEditorView />;
+
   return (
-    <div className="space-y-8 max-w-7xl mx-auto relative">
+    <div className="space-y-8 max-w-7xl mx-auto relative animate-in fade-in duration-500">
       {/* Floating Alert Notification */}
       {activeAlert && (
         <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-8 duration-500">
@@ -732,156 +736,13 @@ export default function UnifiedCommandPage() {
             title={`🔬 ${selectedTicker} - Structural Briefing`}
             variant="default"
           >
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto terminal-scroll">
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto terminal-scroll pr-2 pt-4">
               {selectedTicker && marketCards[selectedTicker] ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-muted/10 p-3 rounded-lg border border-border/50">
-                      <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2">Key Levels (Support)</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {marketCards[selectedTicker].screener_briefing?.S_Levels?.map((l: any, i: number) => (
-                          <Badge key={i} variant="success" className="font-mono text-sm">{l}</Badge>
-                        )) || <span className="text-xs italic text-muted-foreground">None</span>}
-                      </div>
-                    </div>
-                    <div className="bg-muted/10 p-3 rounded-lg border border-border/50">
-                      <h4 className="text-xs font-bold uppercase text-muted-foreground mb-2">Key Levels (Resistance)</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {marketCards[selectedTicker].screener_briefing?.R_Levels?.map((l: any, i: number) => (
-                          <Badge key={i} variant="error" className="font-mono text-sm">{l}</Badge>
-                        )) || <span className="text-xs italic text-muted-foreground">None</span>}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="text-sm leading-relaxed whitespace-pre-wrap font-mono text-foreground/80">
-                      {(() => {
-                        const briefing = marketCards[selectedTicker].screener_briefing;
-                        if (!briefing) return <span className="text-muted-foreground italic">No briefing details available.</span>;
-
-                        // Parse narrative string
-                        let narrativeText = "";
-                        if (typeof briefing === 'string') narrativeText = briefing;
-                        else if (briefing.narrative) narrativeText = briefing.narrative;
-                        else return JSON.stringify(briefing, null, 2).replace(/[{"}\[\],]/g, '');
-
-                        // Extract sections using regex
-                        const getSection = (key: string) => {
-                          // Look for Key: Value followed by (newline + NextKey:) OR End of String
-                          // Updated regex allows mixed case/numbers in keys (e.g., Plan_A, S_Levels)
-                          const match = narrativeText.match(new RegExp(`${key}:\\s*(.*?)(?=\\n[A-Z][a-zA-Z0-9_]*:|$)`, 's'));
-                          return match ? match[1].trim() : null;
-                        };
-
-                        const setupBias = getSection('Setup_Bias') || "Neutral";
-                        const justification = getSection('Justification');
-                        const catalyst = getSection('Catalyst');
-                        const pattern = getSection('Pattern');
-                        const planA = getSection('Plan_A');
-                        const planALevel = getSection('Plan_A_Level');
-                        const planB = getSection('Plan_B');
-                        const planBLevel = getSection('Plan_B_Level');
-
-                        // Clean up Pattern if it accidentally captured subsequent sections due to malformed newlines
-                        // (Fallback safety: if Pattern is suspiciously long (> 100 chars), assume regex fail and truncate)
-                        const cleanPattern = pattern && pattern.length > 200 ? pattern.substring(0, 100) + "..." : pattern;
-
-                        return (
-                          <div className="space-y-6">
-                            {/* Header: Bias & Scope */}
-                            <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-white/10 pb-4 gap-4">
-                              <div className="space-y-1">
-                                <h5 className="text-xs font-bold uppercase text-muted-foreground tracking-widest">Strategic Bias</h5>
-                                <Badge variant={setupBias.includes('Bear') ? 'error' : setupBias.includes('Bull') ? 'success' : 'default'} className="text-base px-3 py-1">
-                                  {setupBias.toUpperCase()}
-                                </Badge>
-                              </div>
-                              {cleanPattern && (
-                                <div className="text-left md:text-right space-y-1 flex-1 flex flex-col items-end">
-                                  <h5 className="text-xs font-bold uppercase text-muted-foreground tracking-widest w-full text-left md:text-right">Detected Pattern</h5>
-                                  <span className="text-sm font-mono text-primary bg-primary/5 px-3 py-1.5 rounded inline-block leading-relaxed w-fit max-w-full">
-                                    {cleanPattern}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Core Core Narrative */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              {catalyst && (
-                                <div className="bg-yellow-500/5 p-4 rounded-xl border border-yellow-500/20">
-                                  <h5 className="text-xs font-bold uppercase text-yellow-500 mb-2 flex items-center gap-2">
-                                    <Zap className="w-4 h-4" /> Catalyst
-                                  </h5>
-                                  <p className="text-sm leading-relaxed text-foreground/90">{catalyst}</p>
-                                </div>
-                              )}
-                              {justification && (
-                                <div className={`p-4 rounded-xl border ${!catalyst ? 'col-span-2' : ''} bg-muted/10 border-border/50`}>
-                                  <h5 className="text-xs font-bold uppercase text-muted-foreground mb-2 flex items-center gap-2">
-                                    <Brain className="w-4 h-4" /> Rationale
-                                  </h5>
-                                  <p className="text-sm leading-relaxed text-foreground/90">{justification}</p>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Execution Plans */}
-                            {(planA || planB) ? (
-                              <div className="space-y-3 pt-2">
-                                <h5 className="text-xs font-bold uppercase text-muted-foreground tracking-widest mb-2">Execution Plans</h5>
-
-                                {(() => {
-                                  const getPlanStyles = (text: string | null) => {
-                                    if (!text) return { border: 'border-l-primary/30', badge: 'bg-primary/10 text-primary', text: 'text-primary' };
-                                    const t = text.toLowerCase();
-                                    const isShort = /short|bear|sell|put|below|failure|resistance|rejection|reject|fade/i.test(t);
-                                    const isLong = /long|bull|buy|call|above|support|bounce|break|cross/i.test(t);
-
-                                    if (isShort) return { border: 'border-l-rose-500', badge: 'bg-rose-500/10 text-rose-400', text: 'text-rose-400' };
-                                    if (isLong) return { border: 'border-l-emerald-500', badge: 'bg-emerald-500/10 text-emerald-400', text: 'text-emerald-400' };
-                                    return { border: 'border-l-primary/30', badge: 'bg-primary/10 text-primary', text: 'text-primary' };
-                                  };
-
-                                  const stylesA = getPlanStyles(planA);
-                                  const stylesB = getPlanStyles(planB);
-
-                                  return (
-                                    <>
-                                      {planA && (
-                                        <div className={`flex items-center gap-4 bg-gradient-to-r from-background to-muted/20 p-3 rounded-lg border-l-4 ${stylesA.border} border border-t-0 border-r-0 border-b-0 shadow-sm`}>
-                                          <div className={`px-2 py-1 rounded font-black text-sm min-w-[60px] text-center ${stylesA.badge}`}>PLAN A</div>
-                                          <div className="flex-1 text-sm font-medium">{planA}</div>
-                                          {planALevel && <div className={`font-mono font-bold text-base ${stylesA.text}`}>{planALevel}</div>}
-                                        </div>
-                                      )}
-
-                                      {planB && (
-                                        <div className={`flex items-center gap-4 bg-gradient-to-r from-background to-muted/20 p-3 rounded-lg border-l-4 ${stylesB.border} border border-t-0 border-r-0 border-b-0 shadow-sm`}>
-                                          <div className={`px-2 py-1 rounded font-black text-sm min-w-[60px] text-center ${stylesB.badge}`}>PLAN B</div>
-                                          <div className="flex-1 text-sm font-medium text-foreground/80">{planB}</div>
-                                          {planBLevel && <div className={`font-mono font-bold text-base ${stylesB.text}`}>{planBLevel}</div>}
-                                        </div>
-                                      )}
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            ) : null}
-
-                            {/* Fallback for unparsed sections / errors */}
-                            {(!setupBias && !justification) && (
-                              <div className="text-sm text-muted-foreground font-mono whitespace-pre-wrap">
-                                {narrativeText}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
+                <CompanyCardView
+                  card={marketCards[selectedTicker]}
+                  ticker={selectedTicker}
+                  date={settings.benchmark_date}
+                />
               ) : (
                 <div className="flex flex-col items-center justify-center p-8 text-center">
                   <Zap className="w-8 h-8 text-muted-foreground mb-2" />
@@ -890,27 +751,12 @@ export default function UnifiedCommandPage() {
               )}
             </div>
             {selectedTicker && (
-              <div className="flex justify-between pt-4 border-t border-border/30">
-                <Button
-                  variant="ghost"
-                  onClick={() => setChartTicker(selectedTicker)}
-                  className="text-xs flex items-center gap-2 bg-rose-950/30 text-rose-400 border border-rose-900/50 hover:bg-rose-900/40 hover:text-rose-300 transition-all"
-                >
-                  <Activity className="w-4 h-4" /> Launch Chart
-                </Button>
+              <div className="flex justify-end pt-4 border-t border-border/30">
                 <Button variant="outline" onClick={() => setSelectedTicker(null)} className="text-xs">Close Briefing</Button>
               </div>
             )}
           </Modal>
 
-          {/* Chart Popup */}
-          <CustomChartModal
-            isOpen={!!chartTicker}
-            onClose={() => setChartTicker(null)}
-            ticker={chartTicker || ""}
-            marketCard={chartTicker ? marketCards[chartTicker] : null}
-            simulationCutoff={settings.simulation_cutoff}
-          />
         </div>
       </div>
     </div>

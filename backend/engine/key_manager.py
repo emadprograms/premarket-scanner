@@ -97,6 +97,12 @@ class KeyManager:
         },
 
         # --- FREE TIER (Standard Limits) ---
+        'gemini-3-pro-free': {
+            'model_id': 'gemini-3-pro-preview',
+            'tier': 'free',
+            'display': 'Gemini 3 Pro (Free)',
+            'limits': {'rpm': 5, 'tpm': 32000, 'rpd': 50}
+        },
         'gemini-3-flash-free': {
              'model_id': 'gemini-3-flash-preview',
              'tier': 'free',

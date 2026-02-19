@@ -13,6 +13,7 @@ Located in `backend/`:
     *   `scanner.py`: Handles Step 1 related logic (Data fetching and analysis).
     *   `ranking.py`: Handles Step 3 related logic (Ranking setups).
     *   `system.py`: System health checks and context management.
+    *   `workbench.py`: EOD pipeline generation and card management.
 *   **`services/`**: Helper services.
     *   `context.py`: Singleton management for Database and keys.
     *   `logger.py`: Centralized logging service.
@@ -34,6 +35,8 @@ Located in `frontend/`:
     *   `layout.tsx`: Root layout definition.
 *   **`src/components/layout/`**:
     *   **`MissionControl.tsx`**: The main cockpit ("Commander"). Orchestrates the Economy Card, Scanner Grid, and Ranking view in a single unified interface.
+    *   **`WorkbenchView.tsx`**: The Intelligence Lab view for EOD pipeline activities.
+    *   **`CardEditorView.tsx`**: The Archive Room view for JSON management.
     *   `Shell.tsx`: Application shell/wrapper.
 *   **`src/components/ui/`**: Reusable UI atoms and molecules.
 

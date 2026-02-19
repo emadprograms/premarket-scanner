@@ -201,12 +201,8 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
         elif ticker == "EURUSDT": yf_ticker = "EURUSD=X"
         elif ticker == "CL=F": yf_ticker = "CL=F"
         
-        # Fetch data
         # Map requested days to valid YF period (1d, 5d, 1mo, etc.)
-        # User requested 5d fallback for periods like 2.9d
         yf_period = "1d" if days <= 1 else "5d"
-        
-        # prepost=True is CRITICAL for early morning sector data (XLF, etc.)
         df = yf.download(yf_ticker, period=yf_period, interval=interval, progress=False, ignore_tz=False, prepost=True)
         
         if df.empty:

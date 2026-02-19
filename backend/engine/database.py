@@ -71,9 +71,18 @@ def init_db_schema(client, logger: AppLogger):
                 card_json TEXT NOT NULL
             );
         """)
+        # NEW: Global Context / Daily Headlines
+        client.execute("""
+            CREATE TABLE IF NOT EXISTS daily_inputs (
+                target_date TEXT PRIMARY KEY NOT NULL,
+                news_text TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
         logger.log("DB: Schema verified.")
     except Exception as e:
         logger.log(f"DB Error: {e}")
+        print(f"❌ DB Error initializing schema: {e}")
 
 def fetch_watchlist(client, logger: AppLogger) -> list[str]:
     """Fetches list of stock tickers from DB to filter scan."""

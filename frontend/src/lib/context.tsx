@@ -14,6 +14,7 @@ interface MissionSettings {
     use_full_context: boolean;
     confluence_mode: 'Strict' | 'Flexible';
     force_economy_refresh: boolean;
+    workstation: 'Scanner' | 'Workbench' | 'Archive'; // NEW: Workstation state
 }
 
 interface SystemStatus {
@@ -42,7 +43,8 @@ const defaultSettings: MissionSettings = {
     plan_only_proximity: false,
     use_full_context: false,
     confluence_mode: "Strict",
-    force_economy_refresh: false
+    force_economy_refresh: false,
+    workstation: 'Scanner'
 };
 
 const MissionContext = createContext<MissionContextType | undefined>(undefined);

@@ -47,3 +47,54 @@ export const getWatchlistStatus = async () => {
     const { data } = await api.get('/api/system/watchlist-status');
     return data;
 };
+
+export const getWorkbenchNextDate = async () => {
+    const { data } = await api.get('/api/workbench/pipeline/next-date');
+    return data;
+};
+
+export const getDailyInput = async (date: string) => {
+    const { data } = await api.get(`/api/workbench/daily-input/${date}`);
+    return data;
+};
+
+export const saveDailyInput = async (date: string, newsText: string) => {
+    const { data } = await api.post('/api/workbench/daily-input/save', null, {
+        params: { date, news_text: newsText }
+    });
+    return data;
+};
+
+export const generateEconomyCard = async (date: string, newsText: string, modelConfig: string = "gemini-3-flash-free") => {
+    const { data } = await api.post('/api/workbench/economy/generate', null, {
+        params: { date, news_text: newsText, model_config: modelConfig }
+    });
+    return data;
+};
+
+export const generateCompanyCard = async (date: string, ticker: string, modelConfig: string = "gemini-3-flash-free") => {
+    const { data } = await api.post('/api/workbench/company/generate', null, {
+        params: { date, ticker, model_config: modelConfig }
+    });
+    return data;
+};
+
+export const getCards = async (category: string, date?: string) => {
+    const { data } = await api.get(`/api/workbench/cards/${category}`, {
+        params: { date }
+    });
+    return data;
+};
+
+export const updateCard = async (category: string, date: string, ticker: string | null, cardData: any) => {
+    const { data } = await api.post(`/api/workbench/cards/${category}/update`, cardData, {
+        params: { date, ticker }
+    });
+    return data;
+};
+export const deleteCard = async (category: string, date: string, ticker: string | null) => {
+    const { data } = await api.delete(`/api/workbench/cards/${category}/delete`, {
+        params: { date, ticker }
+    });
+    return data;
+};

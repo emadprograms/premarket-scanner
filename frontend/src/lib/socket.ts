@@ -26,6 +26,10 @@ class SocketService {
         this.handlers.push(handler);
     }
 
+    offLog(handler: LogHandler) {
+        this.handlers = this.handlers.filter(h => h !== handler);
+    }
+
     disconnect() {
         if (this.socket) {
             this.socket.close();
