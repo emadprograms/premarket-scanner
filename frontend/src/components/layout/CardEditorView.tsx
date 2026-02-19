@@ -329,17 +329,19 @@ export default function CardEditorView() {
 
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
-                                                        <span className={`text-xs font-black tracking-tight ${isSelected ? 'text-blue-400' : 'text-foreground/90 group-hover:text-blue-400'} transition-colors truncate`}>
-                                                            {selectedType === 'company' ? card.ticker : 'EOD_REPORT'}
+                                                        <span className={`text-xs font-black tracking-tight ${isSelected ? 'text-blue-400' : 'text-foreground/90 group-hover:text-blue-400'} transition-all truncate`}>
+                                                            {selectedType === 'company' ? card.ticker : card.date}
                                                         </span>
                                                         {selectedType === 'company' && setupBias && (
                                                             <div className="flex items-center">
                                                                 {renderBiasIcon(setupBias)}
                                                             </div>
                                                         )}
-                                                        <span className={`text-[10px] font-mono shrink-0 ${isSelected ? 'text-blue-400/60' : 'text-muted-foreground/60'}`}>
-                                                            {card.date}
-                                                        </span>
+                                                        {selectedType === 'company' && (
+                                                            <span className={`text-[10px] font-mono shrink-0 ${isSelected ? 'text-blue-400/60' : 'text-muted-foreground/60'}`}>
+                                                                {card.date}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -406,7 +408,7 @@ export default function CardEditorView() {
                                             <div className="flex items-center gap-3">
                                                 <History className="w-5 h-5 text-blue-400" />
                                                 <h3 className="font-black text-xl italic uppercase tracking-tighter">
-                                                    {selectedType === 'company' ? selectedCard.ticker : 'EOD_REPORT'}
+                                                    {selectedType === 'company' ? selectedCard.ticker : selectedCard.date}
                                                 </h3>
                                             </div>
                                             <div className="flex items-center gap-3 text-[10px] font-black uppercase italic">
@@ -436,10 +438,12 @@ export default function CardEditorView() {
                                                         </Badge>
                                                     );
                                                 })()}
-                                                <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/5 uppercase italic text-muted-foreground opacity-60">
-                                                    <Calendar className="w-3 h-3" />
-                                                    {selectedCard.date}
-                                                </div>
+                                                {selectedType === 'company' && (
+                                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/5 uppercase italic text-muted-foreground opacity-60">
+                                                        <Calendar className="w-3 h-3" />
+                                                        {selectedCard.date}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
