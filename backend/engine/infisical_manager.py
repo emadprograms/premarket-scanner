@@ -70,3 +70,16 @@ class InfisicalManager:
         except Exception as e:
             # Fallback to standard environment variable
             return os.getenv(secret_name)
+
+    def get_secret_ext(self, secret_name, environment):
+        if not self.is_connected: return os.getenv(secret_name)
+        try:
+            secret = self.client.getSecret(options=GetSecretOptions(
+                secret_name=secret_name,
+                project_id=self.project_id,
+                environment=environment,
+                path="/"
+            ))
+            return secret.secret_value 
+        except Exception as e:
+            return None

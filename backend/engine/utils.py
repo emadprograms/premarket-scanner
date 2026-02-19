@@ -53,13 +53,35 @@ def get_turso_credentials():
         auth_token = None
         
         if mgr.is_connected:
-            # Try long slugs first
-            db_url = mgr.get_secret("turso_emadprograms_analystworkbench_DB_URL")
-            auth_token = mgr.get_secret("turso_emadprograms_analystworkbench_AUTH_TOKEN")
+            envs_to_try = [mgr.infisical_env, "prod", "dev", "staging"]
+            # Filter out duplicates while preserving order
+            envs_to_try = list(dict.fromkeys(envs_to_try))
             
-            # Fallback to standard names in Infisical
-            if not db_url: db_url = mgr.get_secret("TURSO_DB_URL")
-            if not auth_token: auth_token = mgr.get_secret("TURSO_AUTH_TOKEN")
+            for env in envs_to_try:
+                try:
+                    # Debug: List what we see
+                    from infisical_client import ListSecretsOptions
+                    all_secrets = mgr.client.listSecrets(options=ListSecretsOptions(
+                        project_id=mgr.project_id,
+                        environment=env,
+                        path="/",
+                        include_imports=True
+                    ))
+                    secret_names = [s.secret_name for s in all_secrets]
+                    print(f"🔍 Infisical Debug: Visible Secret Names in '{env}': {secret_names}")
+                    
+                    # Try to fetch
+                    db_url = mgr.get_secret_ext("turso_emadprograms_analystworkbench_DB_URL", env)
+                    auth_token = mgr.get_secret_ext("turso_emadprograms_analystworkbench_AUTH_TOKEN", env)
+                    
+                    if not db_url: db_url = mgr.get_secret_ext("TURSO_DB_URL", env)
+                    if not auth_token: auth_token = mgr.get_secret_ext("TURSO_AUTH_TOKEN", env)
+                    
+                    if db_url and auth_token:
+                        print(f"✅ Infisical: Found credentials in '{env}' environment.")
+                        break
+                except Exception as e:
+                    print(f"ℹ️ Infisical: Check skipped for '{env}': {e}")
         
         # 2. Fallback to direct Environment Variables
         if not db_url: db_url = os.getenv("TURSO_DB_URL")
