@@ -1,7 +1,7 @@
-import streamlit as st
 import json
 import re
 import sqlite3
+import os
 from datetime import datetime
 from libsql_client import create_client_sync, LibsqlError
 from backend.engine.utils import AppLogger
@@ -15,7 +15,7 @@ class LocalDBClient:
         conn = sqlite3.connect(self.path)
         cursor = conn.cursor()
         if params:
-            cursor.execute(query.replace('?', '?'), params) # sqlite3 uses ? too
+            cursor.execute(query.replace('?', '?'), params)
         else:
             cursor.execute(query)
         
@@ -23,33 +23,37 @@ class LocalDBClient:
         cols = [description[0] for description in cursor.description] if cursor.description else []
         conn.close()
         
-        # Mocking the ResultSet object
         class ResultSet:
             def __init__(self, rows, columns):
                 self.rows = rows
                 self.columns = columns
         return ResultSet(rows, cols)
 
-@st.cache_resource(show_spinner="Connecting to Headquarters...")
 def get_db_connection(db_url: str, auth_token: str, local_mode=False, local_path="data/local_turso.db"):
     if local_mode:
-        import os
         if not os.path.exists(local_path):
-            st.warning("Local database not found. Please Sync first.")
+            print(f"[WARN] Local database not found at {local_path}.")
             return None
         return LocalDBClient(local_path)
         
     if not db_url or not auth_token:
+        # Fallback to env
+        db_url = os.getenv("TURSO_DB_URL")
+        auth_token = os.getenv("TURSO_AUTH_TOKEN")
+        
+    if not db_url or not auth_token:
+        print("[ERROR] Turso credentials missing.")
         return None
+        
     try:
         return create_client_sync(url=db_url, auth_token=auth_token)
     except Exception as e:
-        st.error(f"Failed to connect to DB: {e}")
+        print(f"[ERROR] Failed to connect to DB: {e}")
         return None
 
 def init_db_schema(client, logger: AppLogger):
-    if isinstance(client, LocalDBClient):
-        return # Assume local schema is synced from Turso
+    if not client or isinstance(client, LocalDBClient):
+        return
     try:
         client.execute("""
             CREATE TABLE IF NOT EXISTS premarket_snapshots (
@@ -61,7 +65,6 @@ def init_db_schema(client, logger: AppLogger):
                 final_briefing TEXT
             );
         """)
-        # NEW: Persistent storage for Deep Dive (Live) Cards
         client.execute("""
             CREATE TABLE IF NOT EXISTS deep_dive_cards (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +74,6 @@ def init_db_schema(client, logger: AppLogger):
                 card_json TEXT NOT NULL
             );
         """)
-        # NEW: Global Context / Daily Headlines
         client.execute("""
             CREATE TABLE IF NOT EXISTS daily_inputs (
                 target_date TEXT PRIMARY KEY NOT NULL,
@@ -79,13 +81,12 @@ def init_db_schema(client, logger: AppLogger):
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
-        logger.log("DB: Schema verified.")
+        if logger: logger.log("DB: Schema verified.")
     except Exception as e:
-        logger.log(f"DB Error: {e}")
+        if logger: logger.log(f"DB Error: {e}")
         print(f"❌ DB Error initializing schema: {e}")
 
 def fetch_watchlist(client, logger: AppLogger) -> list[str]:
-    """Fetches list of stock tickers from DB to filter scan."""
     try:
         rs = client.execute("SELECT ticker FROM Stocks")
         if rs.rows:
@@ -95,7 +96,6 @@ def fetch_watchlist(client, logger: AppLogger) -> list[str]:
         if logger: logger.log(f"Watchlist Fetch Error: {e}")
         return []
 
-# @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -> str:
     try:
         cutoff_date_part = cutoff_str.split(" ")[0]
@@ -107,13 +107,12 @@ def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -
     except Exception:
         return None
 
-# @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_eod_economy_card(_client, benchmark_date: str, _logger: AppLogger) -> dict:
     try:
         rs = _client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (benchmark_date,))
         return json.loads(rs.rows[0][0]) if rs.rows and rs.rows[0][0] else None
     except Exception as e:
-        _logger.log(f"DB Error (EOD Card): {e}")
+        if _logger: _logger.log(f"DB Error (EOD Card): {e}")
         return None
 
 def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tuple[list[float], list[float]]:
@@ -151,22 +150,14 @@ def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tupl
         pass
     return s_levels, r_levels
 
-# @st.cache_data(ttl=3600, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date: str, _logger: AppLogger) -> dict:
-    """
-    Tiered Retrieval:
-    1. Check deep_dive_cards (Live) for the latest card on or before benchmark_date.
-    2. Fallback to company_cards (EOD) for missing tickers.
-    """
     ticker_list = list(ticker_tuple)
     db_data = {}
     if not ticker_list or not _client:
         return db_data
 
-    # --- STEP 1: LOAD LIVE CARDS (Priority) ---
     try:
         placeholders = ','.join(['?'] * len(ticker_list))
-        # REMOVED: date <= benchmark_date filter for Live cards to ensure absolute latest interaction is fetched.
         live_query = f"""
             WITH LatestLive AS (
                 SELECT 
@@ -177,7 +168,7 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
             )
             SELECT ticker, card_json, date, timestamp FROM LatestLive WHERE rn = 1
         """
-        rs_live = _client.execute(live_query, ticker_list) # benchmark_date is NOT used for Live priority
+        rs_live = _client.execute(live_query, ticker_list)
         
         for row in rs_live.rows:
             ticker, card_json, actual_date, ts = row[0], row[1], row[2], row[3]
@@ -187,7 +178,6 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
                 briefing_data = card_data.get('screener_briefing')
                 briefing_text = json.dumps(briefing_data, indent=2) if isinstance(briefing_data, dict) else str(briefing_data)
                 
-                # Tag as Live for UI identification
                 db_data[ticker] = {
                     "screener_briefing_text": briefing_text,
                     "s_levels": s_levels,
@@ -195,11 +185,10 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
                     "plan_date": ts[:10],
                     "timestamp": ts,
                     "is_live": True,
-                    "raw_card_json": card_json  # kept for migration extraction
+                    "raw_card_json": card_json
                 }
             except: pass
 
-        # --- STEP 2: FALLBACK TO EOD (For missing tickers) ---
         remaining = [t for t in ticker_list if t not in db_data]
         if remaining:
             r_placeholders = ','.join(['?'] * len(remaining))
@@ -227,27 +216,26 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
                         "plan_date": actual_date,
                         "timestamp": "Historical",
                         "is_live": False,
-                        "raw_card_json": card_json  # kept for migration extraction
+                        "raw_card_json": card_json
                     }
                 except: pass
 
         return db_data
     except Exception as e:
-        _logger.log(f"DB Error (Tiered Fetch): {e}")
+        if _logger: _logger.log(f"DB Error (Tiered Fetch): {e}")
         return {}
 
-# @st.cache_data(ttl=86400, show_spinner=False) # REMOVED: User requested no caching in Live Mode
 def get_all_tickers_from_db(_client, _logger: AppLogger) -> list[str]:
     try:
         rs = _client.execute("SELECT user_ticker FROM symbol_map")
         return [row[0] for row in rs.rows]
     except Exception as e:
-        _logger.log(f"DB Error (Get Tickers): {e}")
+        if _logger: _logger.log(f"DB Error (Get Tickers): {e}")
         return []
 
 def save_snapshot(client, news_input: str, eco_card: dict, live_stats: str, briefing: str, logger: AppLogger) -> bool:
     if not client or isinstance(client, LocalDBClient):
-        return False # Don't save snapshots to local cache
+        return False
     try:
         ts = datetime.now().isoformat()
         eco_json = json.dumps(eco_card)
@@ -259,14 +247,13 @@ def save_snapshot(client, news_input: str, eco_card: dict, live_stats: str, brie
             """,
             (ts, news_input, eco_json, live_stats, briefing),
         )
-        logger.log("DB: Snapshot saved.")
+        if logger: logger.log("DB: Snapshot saved.")
         return True
     except Exception as e:
-        logger.log(f"DB Error (Save Snapshot): {e}")
+        if logger: logger.log(f"DB Error (Save Snapshot): {e}")
         return False
 
 def save_deep_dive_card(client, ticker: str, date_str: str, card_json: str, logger: AppLogger) -> bool:
-    """Persists a Deep Dive (Live) card to Turso."""
     if not client or isinstance(client, LocalDBClient):
         return False
     try:
@@ -275,19 +262,13 @@ def save_deep_dive_card(client, ticker: str, date_str: str, card_json: str, logg
             "INSERT INTO deep_dive_cards (ticker, date, timestamp, card_json) VALUES (?, ?, ?, ?)",
             (ticker, date_str, ts, card_json)
         )
-        logger.log(f"DB: Deep Dive card saved for {ticker}.")
+        if logger: logger.log(f"DB: Deep Dive card saved for {ticker}.")
         return True
     except Exception as e:
-        logger.log(f"DB Error (Save Deep Dive): {e}")
+        if logger: logger.log(f"DB Error (Save Deep Dive): {e}")
         return False
 
 def upsert_live_card(client, ticker: str, date_str: str, card_json: str) -> bool:
-    """
-    Upserts a live card to deep_dive_cards.
-    If a record exists for this ticker+date, updates it with new data and timestamp.
-    If not, inserts a new record.
-    This ensures the ranking engine always has the freshest DB-backed state.
-    """
     if not client or isinstance(client, LocalDBClient):
         return False
     try:

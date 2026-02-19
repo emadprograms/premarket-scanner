@@ -1,14 +1,18 @@
-import streamlit as st
+import os
+import logging
 from datetime import datetime, timezone
 
+# Setup standard logging
+logging.basicConfig(level=logging.INFO)
+logger_stdout = logging.getLogger("backend")
+
 class AppLogger:
-    def __init__(self, container):
-        self.container = container
+    def __init__(self, container=None):
+        self.container = container # Keep for compatibility, though not used in FastAPI
         self.log_messages = []
 
     def _get_ts(self):
         """Standardized timestamp for logs."""
-        from datetime import datetime, timezone
         return datetime.now(timezone.utc).strftime('%H:%M:%S')
 
     def log(self, message: str, level: str = "INFO"):
@@ -16,10 +20,11 @@ class AppLogger:
         icons = {"INFO": "🔵", "WARNING": "⚠️", "ERROR": "❌", "SUCCESS": "✅"}
         icon = icons.get(level.upper(), "🔵")
         
-        new_msg = f"**{ts}Z:** {icon} {message}"
+        new_msg = f"{ts}Z: {icon} {message}"
         self.log_messages.append(new_msg)
-        if self.container:
-            self.container.markdown("\n\n".join(self.log_messages[::-1]), unsafe_allow_html=True)
+        
+        # Print to stdout/Render logs
+        print(new_msg)
 
     def info(self, message: str): self.log(message, "INFO")
     def warn(self, message: str): self.log(message, "WARNING")
@@ -28,44 +33,43 @@ class AppLogger:
 
     def log_code(self, data, language='json', title="Data"):
         ts = self._get_ts()
-        new_msg = f"**{ts}Z:** 📜 {title} (See code block below)"
-        self.log_messages.append(new_msg)
-        if self.container:
-            self.container.markdown("\n\n".join(self.log_messages[::-1]), unsafe_allow_html=True)
-            if language == 'json' and isinstance(data, dict):
-                self.container.json(data)
-            else:
-                self.container.code(str(data), language=language)
+        print(f"{ts}Z: 📜 {title}")
+        print(data)
 
     def flush(self):
-        if self.container:
-            self.container.markdown("\n\n".join(self.log_messages[::-1]), unsafe_allow_html=True)
+        pass
 
 from backend.engine.infisical_manager import InfisicalManager
 
 def get_turso_credentials():
+    """
+    Retrieves Turso DB credentials.
+    Priority: 1. Infisical Secrets, 2. Environment Variables.
+    """
     try:
         # 1. Attempt Infisical Logic
         mgr = InfisicalManager()
+        db_url = None
+        auth_token = None
+        
         if mgr.is_connected:
-            # SWITCHED TO ANALYST WORKBENCH (Has Keys & Context)
             db_url = mgr.get_secret("turso_emadprograms_analystworkbench_DB_URL")
             auth_token = mgr.get_secret("turso_emadprograms_analystworkbench_AUTH_TOKEN")
-            
-            if db_url and auth_token:
-                # Ensure HTTPS
-                return db_url.replace("libsql://", "https://"), auth_token
-            else:
-                if not db_url: st.error("Infisical: DB_URL secret missing.")
-                if not auth_token: st.error("Infisical: AUTH_TOKEN secret missing.")
-                return None, None
-        else:
-            # Note: InfisicalManager now shows its own st.error
-            return None, None
         
-        # Fallback removed - we strictly want Infisical to work.
+        # 2. Fallback to direct Environment Variables
+        if not db_url:
+            db_url = os.getenv("TURSO_DB_URL")
+        if not auth_token:
+            auth_token = os.getenv("TURSO_AUTH_TOKEN")
+            
+        if db_url and auth_token:
+            # Ensure protocol is handled correctly for raw HTTP if needed
+            # but usually libsql clients handle libsql:// addresses.
+            return db_url, auth_token
+        else:
+            print("[ERROR] Database credentials missing (TURSO_DB_URL/TURSO_AUTH_TOKEN)")
+            return None, None
+            
     except Exception as e:
-        st.error(f"[ERROR] Critical Initialization Error: {e}")
-        import traceback
-        st.code(traceback.format_exc())
+        print(f"[ERROR] Critical Initialization Error: {e}")
         return None, None

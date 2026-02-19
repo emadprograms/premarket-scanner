@@ -25,7 +25,10 @@ export default function Shell({ children }: ShellProps) {
 
     useEffect(() => {
         // Connect to WebSocket on mount
-        socketService.connect('ws://127.0.0.1:8000/ws/logs');
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+        const wsProtocol = apiBase.startsWith('https') ? 'wss' : 'ws';
+        const wsUrl = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, '')}/ws/logs`;
+        socketService.connect(wsUrl);
 
         // Update time every second after mount to avoid hydration mismatch
         setTime(new Date().toLocaleTimeString());
