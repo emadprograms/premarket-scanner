@@ -29,7 +29,11 @@ export default function Shell({ children }: ShellProps) {
     useEffect(() => {
         setMounted(true);
         // Connect to WebSocket on mount
-        const wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
+        let wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
+        // Force secure websockets for ngrok tunnels to prevent mixed-content blocking
+        if (API_BASE_URL.includes('ngrok')) {
+            wsProtocol = 'wss';
+        }
         const wsUrl = `${wsProtocol}://${API_BASE_URL.replace(/^https?:\/\//, '')}/ws/logs`;
         socketService.connect(wsUrl);
 
