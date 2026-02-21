@@ -6,12 +6,16 @@ import time
 # Add root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import pytest
+
 from backend.engine.key_manager import KeyManager
 from backend.engine.utils import get_turso_credentials
 
 def test_key_manager():
     print("🧪 Testing KeyManager V8...")
     db_url, auth_token = get_turso_credentials()
+    if not db_url or not auth_token:
+        pytest.skip("Turso credentials not available (CI environment)")
     km = KeyManager(db_url, auth_token)
     
     # 1. Add a test key (using a dummy value if none exist)
