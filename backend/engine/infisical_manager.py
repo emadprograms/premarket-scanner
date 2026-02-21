@@ -33,7 +33,7 @@ class InfisicalManager:
                 options = AuthenticationOptions(universal_auth=auth_method)
                 self.client = InfisicalClient(ClientSettings(auth=options))
                 self.is_connected = True
-                print("[OK] Infisical Connected")
+                print(f"[OK] Infisical Connected (Project: {self.project_id}, Env: {self.infisical_env})")
             except Exception as e:
                 print(f"[ERROR] Infisical Auth Failed: {e}")
         else:
@@ -81,4 +81,5 @@ class InfisicalManager:
             ))
             return getattr(secret, "secret_value", getattr(secret, "secretValue", None))
         except Exception as e:
+            print(f"[DEBUG] get_secret_ext('{secret_name}', '{environment}'): {e}")
             return None
