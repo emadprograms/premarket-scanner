@@ -68,10 +68,13 @@ def get_turso_credentials():
                         include_imports=True
                     ))
                     
-                    # Be resilient to naming (secret_name vs secretName)
+                    # Be resilient to naming (secret_name vs secretName vs dict keys)
                     secret_names = []
                     for s in all_secrets:
-                        name = getattr(s, "secret_name", getattr(s, "secretName", None))
+                        if isinstance(s, dict):
+                            name = s.get("secret_name", s.get("secretName", s.get("secretKey")))
+                        else:
+                            name = getattr(s, "secret_name", getattr(s, "secretName", getattr(s, "secretKey", None)))
                         if name: secret_names.append(name)
                     
                     print(f"🔍 Infisical Debug: Visible Secret Names in '{env}': {secret_names}")

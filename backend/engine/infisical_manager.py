@@ -79,6 +79,10 @@ class InfisicalManager:
                 environment=environment,
                 path="/"
             ))
+            
+            # SDK returns objects or dicts depending on version
+            if isinstance(secret, dict):
+                return secret.get("secret_value", secret.get("secretValue"))
             return getattr(secret, "secret_value", getattr(secret, "secretValue", None))
         except Exception as e:
             print(f"[DEBUG] get_secret_ext('{secret_name}', '{environment}'): {e}")
