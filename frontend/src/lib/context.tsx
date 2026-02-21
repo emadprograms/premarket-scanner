@@ -54,8 +54,20 @@ import { getSystemStatus } from './api';
 export function MissionProvider({ children }: { children: React.ReactNode }) {
     const [settings, setSettings] = useState<MissionSettings>(defaultSettings);
     const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+        // Only on client: sync initial dates if needed
+        setSettings(prev => ({
+            ...prev,
+            benchmark_date: dayjs().format('YYYY-MM-DD'),
+            simulation_cutoff: dayjs().format('YYYY-MM-DD 09:30:00'),
+        }));
+    }, []);
 
     const refreshStatus = async () => {
+        if (!mounted) return;
         try {
             console.log("MissionProvider: Fetching system status...");
             const result = await getSystemStatus();
@@ -69,10 +81,11 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
     };
 
     useEffect(() => {
+        if (!mounted) return;
         refreshStatus();
         const interval = setInterval(refreshStatus, 30000); // 30s poll
         return () => clearInterval(interval);
-    }, []);
+    }, [mounted]);
 
     const updateSettings = (updates: Partial<MissionSettings>) => {
         setSettings(prev => {

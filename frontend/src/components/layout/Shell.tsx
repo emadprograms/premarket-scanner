@@ -87,6 +87,9 @@ export default function Shell({ children }: ShellProps) {
 
     const marketStatus = getMarketStatus();
 
+    // Prevent hydration mismatch by returning a shell or null until first client mount
+    if (!mounted) return <div className="h-screen bg-background" />;
+
     return (
         <div className="flex h-screen bg-background overflow-hidden font-sans">
             {/* NEW: Navigation Sidebar */}
