@@ -85,10 +85,10 @@ export default function Shell({ children }: ShellProps) {
         return { label: 'MARKET CLOSED', color: 'bg-zinc-500/10 text-zinc-500' };
     };
 
-    const marketStatus = getMarketStatus();
-
     // Prevent hydration mismatch by returning a shell or null until first client mount
     if (!mounted) return <div className="h-screen bg-background" />;
+
+    const marketStatus = getMarketStatus();
 
     return (
         <div className="flex h-screen bg-background overflow-hidden font-sans">
