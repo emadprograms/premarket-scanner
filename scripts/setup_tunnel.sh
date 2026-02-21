@@ -1,25 +1,27 @@
 #!/bin/bash
 
-# Configuration for Cloudflare Tunnel
-# Expects TUNNEL_TOKEN environment variable
+# Configuration for Ngrok Tunnel
+# Expects NGROK_AUTH_TOKEN and NGROK_DOMAIN environment variables
 
-if [ -z "$TUNNEL_TOKEN" ]; then
-    echo "❌ Error: TUNNEL_TOKEN not set."
+if [ -z "$NGROK_AUTH_TOKEN" ]; then
+    echo "❌ Error: NGROK_AUTH_TOKEN not set."
     exit 1
 fi
 
-echo "🌐 Setting up Cloudflare Tunnel..."
-
-# Download cloudflared
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-    sudo dpkg -i cloudflared.deb
-    rm cloudflared.deb
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    brew install cloudflare/cloudflare/cloudflared
+if [ -z "$NGROK_DOMAIN" ]; then
+    echo "❌ Error: NGROK_DOMAIN not set."
+    exit 1
 fi
 
-# Run tunnel in background
-cloudflared tunnel --no-autoupdate run --token "$TUNNEL_TOKEN" &
+echo "🌐 Setting up Ngrok Tunnel..."
 
-echo "✅ Cloudflare Tunnel started in background."
+# Download and install ngrok
+curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok-v3-stable-linux-amd64.tgz | tar -xz -C /usr/local/bin
+
+# Authenticate ngrok
+ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
+
+# Start ngrok tunnel in background with the static domain
+ngrok http 8000 --domain="$NGROK_DOMAIN" --log=stdout &
+
+echo "✅ Ngrok Tunnel started → https://$NGROK_DOMAIN"

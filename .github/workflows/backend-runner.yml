@@ -26,12 +26,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Setup Cloudflare Tunnel
+      - name: Setup Ngrok Tunnel
         env:
-          TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          NGROK_DOMAIN: ${{ secrets.NGROK_DOMAIN }}
         run: |
           chmod +x scripts/setup_tunnel.sh
           ./scripts/setup_tunnel.sh
+          sleep 3
 
       - name: Start Backend
         env:
@@ -40,8 +42,7 @@ jobs:
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
           INFISICAL_ENV: ${{ secrets.INFISICAL_ENV }}
         run: |
-          # Run the backend and wait for the specified duration
-          # We use timeout to ensure it shuts down after the user's requested time
           DURATION="${{ github.event.inputs.duration }}"
           echo "🚀 Starting backend for $DURATION..."
-          timeout $DURATION python backend/main.py || echo "⏹️ Backend stopped after $DURATION."
+          echo "🌐 Backend accessible at: https://${{ secrets.NGROK_DOMAIN }}"
+          timeout $DURATION python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 || echo "⏹️ Backend stopped after $DURATION."
