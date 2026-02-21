@@ -21,16 +21,18 @@ interface ShellProps {
 export default function Shell({ children }: ShellProps) {
     const { settings, updateSettings, systemStatus } = useMission();
 
-    const [time, setTime] = React.useState<string | null>(null);
+    // Use empty string or constant on first render to prevent SSR/CSR hydration mismatch
+    const [time, setTime] = React.useState<string>('--:--:--');
+    const [mounted, setMounted] = React.useState(false);
 
     useEffect(() => {
+        setMounted(true);
         // Connect to WebSocket on mount
         const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
         const wsProtocol = apiBase.startsWith('https') ? 'wss' : 'ws';
         const wsUrl = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, '')}/ws/logs`;
         socketService.connect(wsUrl);
 
-        // Update time every second after mount to avoid hydration mismatch
         setTime(new Date().toLocaleTimeString());
         const timer = setInterval(() => {
             setTime(new Date().toLocaleTimeString());
