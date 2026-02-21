@@ -1,6 +1,6 @@
 import os
 import toml
-from infisical_client import InfisicalClient, ClientSettings, GetSecretOptions, AuthenticationOptions, UniversalAuthMethod
+from infisical_sdk import InfisicalSDKClient
 
 class InfisicalManager:
     def __init__(self):
@@ -29,9 +29,11 @@ class InfisicalManager:
         
         if client_id and client_secret:
             try:
-                auth_method = UniversalAuthMethod(client_id=client_id, client_secret=client_secret)
-                options = AuthenticationOptions(universal_auth=auth_method)
-                self.client = InfisicalClient(ClientSettings(auth=options))
+                self.client = InfisicalSDKClient(host="https://app.infisical.com")
+                self.client.auth.universal_auth.login(
+                    client_id=client_id,
+                    client_secret=client_secret
+                )
                 self.is_connected = True
                 print(f"[OK] Infisical Connected (Project: {self.project_id}, Env: {self.infisical_env})")
             except Exception as e:
@@ -42,15 +44,12 @@ class InfisicalManager:
     def list_secrets(self, path="/", environment="dev"):
         if not self.is_connected: return []
         try:
-            from infisical_client import ListSecretsOptions
-            secrets = self.client.listSecrets(options=ListSecretsOptions(
+            response = self.client.secrets.list_secrets(
                 project_id=self.project_id,
-                environment=environment,
-                path=path,
-                attach_to_process_env=False,
-                include_imports=True
-            ))
-            return secrets
+                environment_slug=environment,
+                secret_path=path
+            )
+            return response.secrets
         except Exception as e:
             print(f"[ERROR] Failed to list secrets: {e}")
             return []
@@ -58,14 +57,13 @@ class InfisicalManager:
     def get_secret(self, secret_name):
         if not self.is_connected: return os.getenv(secret_name)
         try:
-            # NOTE: Use snake_case for options
-            secret = self.client.getSecret(options=GetSecretOptions(
+            secret = self.client.secrets.get_secret_by_name(
                 secret_name=secret_name,
                 project_id=self.project_id,
-                environment=self.infisical_env,
-                path="/"
-            ))
-            return getattr(secret, "secret_value", getattr(secret, "secretValue", None)) 
+                environment_slug=self.infisical_env,
+                secret_path="/"
+            )
+            return getattr(secret, "secretValue", None)
         except Exception as e:
             # Fallback to standard environment variable
             return os.getenv(secret_name)
@@ -73,17 +71,13 @@ class InfisicalManager:
     def get_secret_ext(self, secret_name, environment):
         if not self.is_connected: return os.getenv(secret_name)
         try:
-            secret = self.client.getSecret(options=GetSecretOptions(
+            secret = self.client.secrets.get_secret_by_name(
                 secret_name=secret_name,
                 project_id=self.project_id,
-                environment=environment,
-                path="/"
-            ))
-            
-            # SDK returns objects or dicts depending on version
-            if isinstance(secret, dict):
-                return secret.get("secret_value", secret.get("secretValue"))
-            return getattr(secret, "secret_value", getattr(secret, "secretValue", None))
+                environment_slug=environment,
+                secret_path="/"
+            )
+            return getattr(secret, "secretValue", None)
         except Exception as e:
             print(f"[DEBUG] get_secret_ext('{secret_name}', '{environment}'): {e}")
             return None

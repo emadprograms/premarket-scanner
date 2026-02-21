@@ -59,29 +59,19 @@ def get_turso_credentials():
             
             for env in envs_to_try:
                 try:
-                    # Debug: List what we see
-                    from infisical_client import ListSecretsOptions
-                    all_secrets = mgr.client.listSecrets(options=ListSecretsOptions(
-                        project_id=mgr.project_id,
-                        environment=env,
-                        path="/",
-                        include_imports=True
-                    ))
+                    all_secrets = mgr.list_secrets(path="/", environment=env)
                     
-                    # Be resilient to naming (secret_name vs secretName vs dict keys)
+                    # Be resilient to naming (infisicalsdk uses secretKey)
                     secret_names = []
                     for s in all_secrets:
-                        if isinstance(s, dict):
-                            name = s.get("secret_name", s.get("secretName", s.get("secretKey")))
-                        else:
-                            name = getattr(s, "secret_name", getattr(s, "secretName", getattr(s, "secretKey", None)))
+                        name = getattr(s, "secretKey", None)
                         if name: secret_names.append(name)
                     
                     print(f"🔍 Infisical Debug: Visible Secret Names in '{env}': {secret_names}")
                     
                     # Try to fetch
-                    db_url = mgr.get_secret_ext("turso_emadprograms_analystworkbench_DB_URL", env)
-                    auth_token = mgr.get_secret_ext("turso_emadprograms_analystworkbench_AUTH_TOKEN", env)
+                    db_url = mgr.get_secret_ext("turso_emadprograms_analystworkbench_db_url", env)
+                    auth_token = mgr.get_secret_ext("turso_emadprograms_analystworkbench_auth_token", env)
                     
                     if not db_url: db_url = mgr.get_secret_ext("TURSO_DB_URL", env)
                     if not auth_token: auth_token = mgr.get_secret_ext("TURSO_AUTH_TOKEN", env)
