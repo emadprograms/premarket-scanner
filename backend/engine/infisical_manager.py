@@ -11,7 +11,7 @@ class InfisicalManager:
         client_id = os.getenv("INFISICAL_CLIENT_ID")
         client_secret = os.getenv("INFISICAL_CLIENT_SECRET")
         self.project_id = os.getenv("INFISICAL_PROJECT_ID")
-        self.infisical_env = os.getenv("INFISICAL_ENV", "dev")
+        self.infisical_env = os.getenv("INFISICAL_ENV") or "dev"
         
         if not client_id:
             try:

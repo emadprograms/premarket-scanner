@@ -25,6 +25,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run Tests
+        run: python -m pytest tests/ -v --tb=short
 
       - name: Setup Ngrok Tunnel
         env:
@@ -40,7 +44,6 @@ jobs:
           INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
           INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
-          INFISICAL_ENV: ${{ secrets.INFISICAL_ENV }}
         run: |
           DURATION="${{ github.event.inputs.duration }}"
           echo "🚀 Starting backend for $DURATION..."

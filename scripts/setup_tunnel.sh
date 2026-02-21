@@ -15,13 +15,17 @@ fi
 
 echo "🌐 Setting up Ngrok Tunnel..."
 
-# Download and install ngrok
-curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok-v3-stable-linux-amd64.tgz | tar -xz -C /usr/local/bin
+# Download and install ngrok (official method)
+wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+tar -xzf ngrok-v3-stable-linux-amd64.tgz
+chmod +x ngrok
+sudo mv ngrok /usr/local/bin/
 
 # Authenticate ngrok
 ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
 
 # Start ngrok tunnel in background with the static domain
-ngrok http 8000 --domain="$NGROK_DOMAIN" --log=stdout &
+ngrok http 8000 --domain="$NGROK_DOMAIN" --log=stdout > /tmp/ngrok.log 2>&1 &
 
+sleep 2
 echo "✅ Ngrok Tunnel started → https://$NGROK_DOMAIN"
