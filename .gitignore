@@ -7,3 +7,4 @@ secrets.toml
 
 .venv
 data/
+.env

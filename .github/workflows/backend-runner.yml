@@ -1,0 +1,47 @@
+name: Backend Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Run duration (e.g. 1h, 2h)'
+        default: '2h'
+        required: false
+
+jobs:
+  run-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Setup Cloudflare Tunnel
+        env:
+          TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
+        run: |
+          chmod +x scripts/setup_tunnel.sh
+          ./scripts/setup_tunnel.sh
+
+      - name: Start Backend
+        env:
+          INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+          INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+          INFISICAL_ENV: ${{ secrets.INFISICAL_ENV }}
+        run: |
+          # Run the backend and wait for the specified duration
+          # We use timeout to ensure it shuts down after the user's requested time
+          DURATION="${{ github.event.inputs.duration }}"
+          echo "🚀 Starting backend for $DURATION..."
+          timeout $DURATION python backend/main.py || echo "⏹️ Backend stopped after $DURATION."
