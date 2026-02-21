@@ -5,7 +5,12 @@ class SocketService {
     private handlers: LogHandler[] = [];
 
     connect(url: string) {
-        this.socket = new WebSocket(url);
+        try {
+            this.socket = new WebSocket(url);
+        } catch (error) {
+            console.error('WebSocket connection failed:', error);
+            return;
+        }
 
         this.socket.onmessage = (event) => {
             try {

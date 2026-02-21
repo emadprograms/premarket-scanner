@@ -13,6 +13,7 @@ import {
     ShieldAlert
 } from 'lucide-react';
 import { useMission } from '@/lib/context';
+import { API_BASE_URL } from '@/lib/api';
 
 interface ShellProps {
     children: React.ReactNode;
@@ -28,9 +29,8 @@ export default function Shell({ children }: ShellProps) {
     useEffect(() => {
         setMounted(true);
         // Connect to WebSocket on mount
-        const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-        const wsProtocol = apiBase.startsWith('https') ? 'wss' : 'ws';
-        const wsUrl = `${wsProtocol}://${apiBase.replace(/^https?:\/\//, '')}/ws/logs`;
+        const wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
+        const wsUrl = `${wsProtocol}://${API_BASE_URL.replace(/^https?:\/\//, '')}/ws/logs`;
         socketService.connect(wsUrl);
 
         setTime(new Date().toLocaleTimeString());

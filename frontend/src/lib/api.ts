@@ -1,7 +1,8 @@
 import axios from 'axios';
 
-// Debug API Base URL selection
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+// Debug API Base URL selection - Sanitize inputs (remove quotes/trailing spaces that cause fatal URL parsing errors)
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+export const API_BASE_URL = rawApiUrl.trim().replace(/['"]+/g, '');
 console.log(`[API] Initializing client with Base URL: ${API_BASE_URL}`);
 
 const api = axios.create({
