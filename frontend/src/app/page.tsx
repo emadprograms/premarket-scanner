@@ -20,6 +20,59 @@ import CompanyCardView from '@/components/layout/CompanyCardView';
 import ScreenerBriefingView from '@/components/layout/ScreenerBriefingView';
 import ChartPlanView from '@/components/layout/ChartPlanView';
 
+const LOADING_STEPS = [
+  'Connecting to database',
+  'Fetching watchlist',
+  'Pulling ATR data from Yahoo Finance',
+  'Extracting plan levels',
+  'Computing proximity rankings',
+  'Preparing dashboard',
+];
+
+function LoadingSteps() {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setStep(prev => (prev < LOADING_STEPS.length - 1 ? prev + 1 : prev));
+    }, 1500);
+    return () => clearInterval(timer);
+  }, []);
+
+  const progress = ((step + 1) / LOADING_STEPS.length) * 100;
+
+  return (
+    <div className="h-[60vh] flex flex-col items-center justify-center">
+      <div className="relative mb-6">
+        <Zap className="w-10 h-10 text-violet-400" />
+        <div className="absolute inset-0 bg-violet-500/20 blur-xl rounded-full scale-150 animate-pulse" />
+      </div>
+
+      <div className="h-6 overflow-hidden relative w-72 mb-5">
+        {LOADING_STEPS.map((label, i) => (
+          <div
+            key={i}
+            className="absolute inset-0 flex items-center justify-center transition-all duration-500 ease-out"
+            style={{
+              opacity: i === step ? 1 : 0,
+              transform: i === step ? 'translateY(0)' : i < step ? 'translateY(-16px)' : 'translateY(16px)',
+            }}
+          >
+            <span className="text-[13px] text-zinc-400 font-mono">{label}...</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="w-48 h-1 rounded-full bg-zinc-800 overflow-hidden">
+        <div
+          className="h-full rounded-full bg-violet-500/70 transition-all duration-700 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function UnifiedCommandPage() {
   const { settings, systemStatus, capitalStreaming } = useMission();
   const [isLoading, setIsLoading] = useState(true);
@@ -219,16 +272,7 @@ export default function UnifiedCommandPage() {
           </button>
         </div>
       ) : isLoading ? (
-        <div className="h-[60vh] flex flex-col items-center justify-center text-center">
-          <div className="relative">
-            <Zap className="w-16 h-16 text-primary animate-pulse" />
-            <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150 animate-pulse" />
-          </div>
-          <h2 className="text-3xl font-bold mt-8 mb-4 tracking-tight">Loading Market Data</h2>
-          <p className="text-muted-foreground max-w-sm text-lg leading-relaxed">
-            Fetching watchlist, plan levels, and historical data...
-          </p>
-        </div>
+        <LoadingSteps />
       ) : marketData.length === 0 ? (
         /* Empty State — No Data */
         <div className="h-[60vh] flex flex-col items-center justify-center text-center p-20 border-2 border-dashed border-border rounded-3xl bg-muted/5">

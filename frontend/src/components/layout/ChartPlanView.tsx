@@ -81,11 +81,14 @@ export default function ChartPlanView({
                 rightPriceScale: {
                     borderColor: 'rgba(255,255,255,0.1)',
                     scaleMargins: { top: 0.1, bottom: 0.1 },
+                    minimumWidth: 100, // Plenty of space for plan level labels
                 },
                 timeScale: {
                     borderColor: 'rgba(255,255,255,0.1)',
                     timeVisible: true,
                     secondsVisible: false,
+                    rightOffset: 15,
+                    barSpacing: 20, // Fat candles
                 },
                 width: chartContainerRef.current.clientWidth,
                 height: 350,
@@ -101,49 +104,34 @@ export default function ChartPlanView({
             });
 
             if (bars.length > 0) {
-                // Use real Capital.com data
                 series.setData(bars);
                 setBarCount(bars.length);
+                // Show only the last ~60 bars so barSpacing stays fat
+                const from = Math.max(0, bars.length - 60);
+                chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 10 });
             } else {
-                // Fallback: generate synthetic candles around plan levels
                 setChartError('Capital.com data unavailable — showing estimated levels');
                 generateFallbackData(series, planALevel, planBLevel, livePrice ?? null);
                 setBarCount(0);
             }
 
-            // Plot Plan A line
-            if (planALevel !== null && planALevel !== undefined) {
-                series.createPriceLine({
-                    price: planALevel,
-                    color: planANature === 'SUPPORT' ? '#22c55e' : planANature === 'RESISTANCE' ? '#ef4444' : '#8b5cf6',
-                    lineWidth: 2,
-                    lineStyle: 0,
-                    axisLabelVisible: true,
-                    title: `PLAN A — $${planALevel.toFixed(2)}`,
-                });
-            }
+            // Only plot the NEAREST plan (the one closer to live price — the actionable trade)
+            const distToA = (livePrice && planALevel) ? Math.abs(livePrice - planALevel) : Infinity;
+            const distToB = (livePrice && planBLevel) ? Math.abs(livePrice - planBLevel) : Infinity;
+            const showPlanA = distToA <= distToB;
 
-            // Plot Plan B line
-            if (planBLevel !== null && planBLevel !== undefined) {
-                series.createPriceLine({
-                    price: planBLevel,
-                    color: planBNature === 'SUPPORT' ? '#22c55e' : planBNature === 'RESISTANCE' ? '#ef4444' : '#6366f1',
-                    lineWidth: 2,
-                    lineStyle: 2,
-                    axisLabelVisible: true,
-                    title: `PLAN B — $${planBLevel.toFixed(2)}`,
-                });
-            }
+            const nearestLevel = showPlanA ? planALevel : planBLevel;
+            const nearestNature = showPlanA ? planANature : planBNature;
+            const nearestLabel = showPlanA ? 'PLAN A' : 'PLAN B';
 
-            // Plot live price line
-            if (livePrice) {
+            if (nearestLevel !== null && nearestLevel !== undefined) {
                 series.createPriceLine({
-                    price: livePrice,
-                    color: '#fbbf24',
-                    lineWidth: 1,
-                    lineStyle: 1,
+                    price: nearestLevel,
+                    color: nearestNature === 'RESISTANCE' ? '#ef4444' : '#8b5cf6', // Violet for SUPPORT/long, red for RESISTANCE
+                    lineWidth: 2,
+                    lineStyle: 2, // Dashed
                     axisLabelVisible: true,
-                    title: `NOW $${livePrice.toFixed(2)}`,
+                    title: `${nearestLabel} — $${nearestLevel.toFixed(2)}`,
                 });
             }
 
