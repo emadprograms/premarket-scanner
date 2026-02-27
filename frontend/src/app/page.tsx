@@ -19,8 +19,9 @@ import CompanyCardView from '@/components/layout/CompanyCardView';
 import ScreenerBriefingView from '@/components/layout/ScreenerBriefingView';
 
 export default function UnifiedCommandPage() {
-  const { settings, capitalStreaming } = useMission();
+  const { settings, systemStatus, capitalStreaming } = useMission();
   const [isLoading, setIsLoading] = useState(true);
+  const [isBackendError, setIsBackendError] = useState(false);
 
   // Core Scanner State
   const [marketData, setMarketData] = useState<any[]>([]);
@@ -35,6 +36,7 @@ export default function UnifiedCommandPage() {
   useEffect(() => {
     const loadBaseline = async () => {
       setIsLoading(true);
+      setIsBackendError(false);
       try {
         const scanRes = await runSelectionScan({
           benchmark_date: settings.benchmark_date,
@@ -48,9 +50,13 @@ export default function UnifiedCommandPage() {
 
         if (scanRes.status === "success") {
           setMarketData(scanRes.data.results || []);
+        } else {
+          // Handle API-level error status
+          setIsBackendError(true);
         }
       } catch (err) {
         console.error("Auto-load scan failed:", err);
+        setIsBackendError(true);
       } finally {
         setIsLoading(false);
       }
@@ -58,6 +64,14 @@ export default function UnifiedCommandPage() {
 
     loadBaseline();
   }, []);
+
+  // Sync isBackendError with systemStatus from context as a backup
+  useEffect(() => {
+    if (systemStatus === null && !isLoading) {
+      // If we finished loading and status is still null, backend might be unreachable
+      // But we give it a bit of a grace period or wait for the fetch to actually fail
+    }
+  }, [systemStatus, isLoading]);
 
   // 2. Listen for WebSocket price updates when streaming
   useEffect(() => {
@@ -176,8 +190,24 @@ export default function UnifiedCommandPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto relative animate-in fade-in duration-500">
-      {/* Loading State */}
-      {isLoading ? (
+      {/* Backend Offline State */}
+      {isBackendError ? (
+        <div className="h-[60vh] flex flex-col items-center justify-center text-center p-20 border-2 border-dashed border-rose-500/20 rounded-3xl bg-rose-500/5">
+          <div className="bg-rose-500/10 p-8 rounded-full mb-8 text-rose-500">
+            <Zap className="w-16 h-16" />
+          </div>
+          <h2 className="text-3xl font-bold mb-4 tracking-tight text-rose-400">Connection Offline</h2>
+          <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
+            The system is offline. Please contact the administrator to restore the connection.
+          </p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-8 px-6 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-rose-400 text-sm font-bold transition-all"
+          >
+            Retry Connection
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="h-[60vh] flex flex-col items-center justify-center text-center">
           <div className="relative">
             <Zap className="w-16 h-16 text-primary animate-pulse" />
