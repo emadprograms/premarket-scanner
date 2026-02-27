@@ -300,31 +300,31 @@ class TestContextInit:
 
 
 # ============================================================
-# MODULE 5: PLAN EXTRACTION (Scanner Router Helper)
+# MODULE 5: PLAN EXTRACTION (Card Extractor Helper)
 # ============================================================
-from backend.routers.scanner import extract_level_price
+from backend.engine.card_extractor import _extract_price
 
 
 class TestPlanExtraction:
     """Tests the helper that extracts float prices from plan level strings."""
 
     def test_dollar_sign_price(self):
-        assert extract_level_price("$140.50") == 140.50
+        assert _extract_price("$140.50") == 140.50
 
     def test_plain_number(self):
-        assert extract_level_price("140") == 140.0
+        assert _extract_price("140") == 140.0
 
     def test_mixed_text(self):
-        assert extract_level_price("Long above 181.25 with confirmation") == 181.25
+        assert _extract_price("Long above 181.25 with confirmation") == 181.25
 
     def test_empty_string(self):
-        assert extract_level_price("") is None
+        assert _extract_price("") is None
 
     def test_none_input(self):
-        assert extract_level_price(None) is None
+        assert _extract_price(None) is None
 
     def test_no_number(self):
-        assert extract_level_price("No level specified") is None
+        assert _extract_price("No level specified") is None
 
 
 # ============================================================
