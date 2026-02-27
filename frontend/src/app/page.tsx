@@ -8,13 +8,15 @@ import {
   TrendingDown,
   Zap,
   Wifi,
-  Calendar
+  Calendar,
+  FileText
 } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 import { runSelectionScan } from '@/lib/api';
 import { useMission } from '@/lib/context';
 import CardEditorView from '@/components/layout/CardEditorView';
 import CompanyCardView from '@/components/layout/CompanyCardView';
+import ScreenerBriefingView from '@/components/layout/ScreenerBriefingView';
 
 export default function UnifiedCommandPage() {
   const { settings, capitalStreaming } = useMission();
@@ -23,6 +25,7 @@ export default function UnifiedCommandPage() {
   // Core Scanner State
   const [marketData, setMarketData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
+  const [showFullCard, setShowFullCard] = useState(false);
 
   // Real-time Price State
   const priceMapRef = useRef<Record<string, number>>({});
@@ -293,26 +296,59 @@ export default function UnifiedCommandPage() {
         </div>
       )}
 
-      {/* Modal for Full Briefing */}
+      {/* Modal: Screener Briefing (default) → Full Card (toggle) */}
       <Modal
         isOpen={!!selectedTicker}
-        onClose={() => setSelectedTicker(null)}
-        title={`🔬 ${selectedTicker} - Strategic Briefing`}
+        onClose={() => { setSelectedTicker(null); setShowFullCard(false); }}
+        title={`🔬 ${selectedTicker} - ${showFullCard ? 'Full Card' : 'Screener Briefing'}`}
         variant="default"
       >
         <div className="space-y-4 max-h-[70vh] overflow-y-auto terminal-scroll pr-2 pt-4">
-          {selectedTicker && rankedData.find(d => d.ticker === selectedTicker)?.card ? (
-            <CompanyCardView
-              card={rankedData.find(d => d.ticker === selectedTicker)?.card}
-              ticker={selectedTicker}
-              date={settings.benchmark_date}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-              <Zap className="w-8 h-8 text-muted-foreground mb-2" />
-              <p className="text-muted-foreground italic">Plan data unavailable for this ticker.</p>
-            </div>
-          )}
+          {selectedTicker && (() => {
+            const item = rankedData.find(d => d.ticker === selectedTicker);
+            if (!item) return (
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <Zap className="w-8 h-8 text-muted-foreground mb-2" />
+                <p className="text-muted-foreground italic">Plan data unavailable for this ticker.</p>
+              </div>
+            );
+
+            return (
+              <>
+                {/* Toggle Button */}
+                <div className="flex items-center gap-2 mb-4">
+                  <button
+                    onClick={() => setShowFullCard(!showFullCard)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
+                  >
+                    <FileText className="w-3 h-3" />
+                    {showFullCard ? 'Show Briefing' : 'Show Full Card'}
+                  </button>
+                  <div className="h-px flex-1 bg-white/5" />
+                </div>
+
+                {showFullCard ? (
+                  <CompanyCardView
+                    card={item.card}
+                    ticker={selectedTicker}
+                    date={settings.benchmark_date}
+                  />
+                ) : (
+                  <ScreenerBriefingView
+                    briefing={item.card?.screener_briefing || ''}
+                    planAText={item.plan_a_text}
+                    planBText={item.plan_b_text}
+                    planALevel={item.plan_a}
+                    planBLevel={item.plan_b}
+                    planANature={item.plan_a_nature}
+                    planBNature={item.plan_b_nature}
+                    setupBias={item.prox_alert?.Bias}
+                    ticker={selectedTicker}
+                  />
+                )}
+              </>
+            );
+          })()}
         </div>
       </Modal>
     </div>
