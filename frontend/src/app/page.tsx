@@ -10,7 +10,8 @@ import {
   Zap,
   Wifi,
   Calendar,
-  FileText
+  FileText,
+  ArrowLeft
 } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 import { runSelectionScan } from '@/lib/api';
@@ -427,21 +428,6 @@ export default function UnifiedCommandPage() {
             if (modalView === 'briefing') {
               return (
                 <>
-                  <div className="flex items-center gap-2 mb-4">
-                    <button
-                      onClick={() => setModalView('chart')}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
-                    >
-                      ← Back to Chart
-                    </button>
-                    <div className="h-px flex-1 bg-white/5" />
-                    <button
-                      onClick={() => setModalView('card')}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
-                    >
-                      <FileText className="w-3 h-3" /> Show Full Card
-                    </button>
-                  </div>
                   <ScreenerBriefingView
                     briefing={item.card?.screener_briefing || ''}
                     planAText={item.plan_a_text}
@@ -453,6 +439,22 @@ export default function UnifiedCommandPage() {
                     setupBias={item.prox_alert?.Bias}
                     ticker={selectedTicker}
                   />
+                  <div className="flex gap-3 mt-10">
+                    <button
+                      onClick={() => setModalView('chart')}
+                      className="flex-1 flex items-center justify-center gap-3 py-3.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-rose-400 font-bold text-sm tracking-wide transition-all duration-300 group"
+                    >
+                      <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+                      Back to Chart
+                    </button>
+                    <button
+                      onClick={() => setModalView('card')}
+                      className="flex-1 flex items-center justify-center gap-3 py-3.5 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 hover:border-blue-500/40 rounded-xl text-blue-400 font-bold text-sm tracking-wide transition-all duration-300 group"
+                    >
+                      <FileText className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                      Show Full Card
+                    </button>
+                  </div>
                 </>
               );
             }
@@ -460,20 +462,20 @@ export default function UnifiedCommandPage() {
             // Full Card view
             return (
               <>
-                <div className="flex items-center gap-2 mb-4">
-                  <button
-                    onClick={() => setModalView('chart')}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
-                  >
-                    ← Back to Chart
-                  </button>
-                  <div className="h-px flex-1 bg-white/5" />
-                </div>
                 <CompanyCardView
                   card={item.card}
                   ticker={selectedTicker}
                   date={settings.benchmark_date}
                 />
+                <div className="mt-10">
+                  <button
+                    onClick={() => setModalView('chart')}
+                    className="w-full flex items-center justify-center gap-3 py-3.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-rose-400 font-bold text-sm tracking-wide transition-all duration-300 group"
+                  >
+                    <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+                    Back to Chart
+                  </button>
+                </div>
               </>
             );
           })()}

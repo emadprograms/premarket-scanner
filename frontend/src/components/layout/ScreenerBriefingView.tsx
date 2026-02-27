@@ -82,8 +82,8 @@ export default function ScreenerBriefingView({
                 <Badge
                     variant={isBullish ? 'success' : isBearish ? 'error' : 'warning'}
                     className={`text-[11px] font-black italic tracking-[0.15em] uppercase px-3 py-1 border-none ${isBullish ? 'bg-emerald-500/15 text-emerald-400' :
-                            isBearish ? 'bg-rose-500/15 text-rose-400' :
-                                'bg-amber-500/15 text-amber-400'
+                        isBearish ? 'bg-rose-500/15 text-rose-400' :
+                            'bg-amber-500/15 text-amber-400'
                         }`}
                 >
                     {bias}
@@ -123,64 +123,6 @@ export default function ScreenerBriefingView({
                 )}
             </div>
 
-            {/* Plan A & Plan B Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Plan A */}
-                <div className={`${planAColor.bg} p-4 rounded-xl border ${planAColor.border} space-y-3 relative overflow-hidden`}>
-                    <div className={`absolute top-0 left-0 w-1 h-full ${planANature === 'SUPPORT' ? 'bg-emerald-500' : planANature === 'RESISTANCE' ? 'bg-rose-500' : 'bg-blue-500'}`} />
-                    <div className="flex items-center justify-between">
-                        <h3 className={`text-[10px] font-black uppercase tracking-[0.15em] ${planAColor.text} flex items-center gap-1.5`}>
-                            <Shield className="w-3 h-3" /> Plan A
-                        </h3>
-                        {planANature && planANature !== 'UNKNOWN' && (
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${planAColor.bg} ${planAColor.text} border ${planAColor.border}`}>
-                                {planANature}
-                            </span>
-                        )}
-                    </div>
-                    <div>
-                        <p className="text-[13px] font-bold text-white leading-snug">
-                            {planAText || parsed.Plan_A || 'N/A'}
-                        </p>
-                        {planALevel !== null && planALevel !== undefined && (
-                            <div className="flex items-center gap-2 mt-2">
-                                <PlanAIcon className={`w-4 h-4 ${planAColor.text}`} />
-                                <span className={`font-mono font-black text-lg ${planAColor.text}`}>
-                                    ${planALevel.toFixed(2)}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Plan B */}
-                <div className={`${planBColor.bg} p-4 rounded-xl border ${planBColor.border} space-y-3 relative overflow-hidden`}>
-                    <div className={`absolute top-0 left-0 w-1 h-full ${planBNature === 'SUPPORT' ? 'bg-emerald-500' : planBNature === 'RESISTANCE' ? 'bg-rose-500' : 'bg-blue-500'}`} />
-                    <div className="flex items-center justify-between">
-                        <h3 className={`text-[10px] font-black uppercase tracking-[0.15em] ${planBColor.text} flex items-center gap-1.5`}>
-                            <ArrowRight className="w-3 h-3" /> Plan B
-                        </h3>
-                        {planBNature && planBNature !== 'UNKNOWN' && (
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${planBColor.bg} ${planBColor.text} border ${planBColor.border}`}>
-                                {planBNature}
-                            </span>
-                        )}
-                    </div>
-                    <div>
-                        <p className="text-[13px] font-bold text-white leading-snug">
-                            {planBText || parsed.Plan_B || 'N/A'}
-                        </p>
-                        {planBLevel !== null && planBLevel !== undefined && (
-                            <div className="flex items-center gap-2 mt-2">
-                                <PlanBIcon className={`w-4 h-4 ${planBColor.text}`} />
-                                <span className={`font-mono font-black text-lg ${planBColor.text}`}>
-                                    ${planBLevel.toFixed(2)}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
         </div>
     );
 }
