@@ -169,6 +169,11 @@ def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tupl
     return s_levels, r_levels
 
 def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date: str, _logger: AppLogger) -> dict:
+    """
+    Fetches the latest company card for each ticker from aw_company_cards.
+    Deep dive cards are retired — only aw_company_cards are used.
+    Always fetches the most recent card regardless of date.
+    """
     ticker_list = list(ticker_tuple)
     db_data = {}
     if not ticker_list or not _client:
@@ -176,72 +181,38 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
 
     try:
         placeholders = ','.join(['?'] * len(ticker_list))
-        live_query = f"""
-            WITH LatestLive AS (
-                SELECT 
-                    ticker, card_json, date, timestamp,
-                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY timestamp DESC) as rn
-                FROM deep_dive_cards
+        query = f"""
+            WITH LatestCards AS (
+                SELECT ticker, company_card_json, date,
+                ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
+                FROM aw_company_cards
                 WHERE ticker IN ({placeholders})
             )
-            SELECT ticker, card_json, date, timestamp FROM LatestLive WHERE rn = 1
+            SELECT ticker, company_card_json, date FROM LatestCards WHERE rn = 1
         """
-        rs_live = _client.execute(live_query, ticker_list)
-        
-        for row in rs_live.rows:
-            ticker, card_json, actual_date, ts = row[0], row[1], row[2], row[3]
+        rs = _client.execute(query, ticker_list)
+        for row in rs.rows:
+            ticker, card_json, actual_date = row[0], row[1], row[2]
             s_levels, r_levels = _parse_levels_from_json_blob(card_json, _logger)
             try:
                 card_data = json.loads(card_json)
                 briefing_data = card_data.get('screener_briefing')
                 briefing_text = json.dumps(briefing_data, indent=2) if isinstance(briefing_data, dict) else str(briefing_data)
-                
                 db_data[ticker] = {
                     "screener_briefing_text": briefing_text,
                     "s_levels": s_levels,
                     "r_levels": r_levels,
-                    "plan_date": ts[:10],
-                    "timestamp": ts,
-                    "is_live": True,
+                    "card_date": actual_date,
+                    "is_live": False,
                     "raw_card_json": card_json
                 }
             except: pass
 
-        remaining = [t for t in ticker_list if t not in db_data]
-        if remaining:
-            r_placeholders = ','.join(['?'] * len(remaining))
-            eod_query = f"""
-                WITH LatestEOD AS (
-                    SELECT ticker, company_card_json, date,
-                    ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
-                    FROM aw_company_cards
-                    WHERE date <= ? AND ticker IN ({r_placeholders})
-                )
-                SELECT ticker, company_card_json, date FROM LatestEOD WHERE rn = 1
-            """
-            rs_eod = _client.execute(eod_query, [benchmark_date] + remaining)
-            for row in rs_eod.rows:
-                ticker, card_json, actual_date = row[0], row[1], row[2]
-                s_levels, r_levels = _parse_levels_from_json_blob(card_json, _logger)
-                try:
-                    card_data = json.loads(card_json)
-                    briefing_data = card_data.get('screener_briefing')
-                    briefing_text = json.dumps(briefing_data, indent=2) if isinstance(briefing_data, dict) else str(briefing_data)
-                    db_data[ticker] = {
-                        "screener_briefing_text": briefing_text,
-                        "s_levels": s_levels,
-                        "r_levels": r_levels,
-                        "plan_date": actual_date,
-                        "timestamp": "Historical",
-                        "is_live": False,
-                        "raw_card_json": card_json
-                    }
-                except: pass
-
         return db_data
     except Exception as e:
-        if _logger: _logger.log(f"DB Error (Tiered Fetch): {e}")
+        if _logger: _logger.log(f"DB Error (Card Fetch): {e}")
         return {}
+
 
 def get_all_tickers_from_db(_client, _logger: AppLogger) -> list[str]:
     try:

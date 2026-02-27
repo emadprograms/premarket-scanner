@@ -6,9 +6,9 @@ import { Modal } from '@/components/ui/Modal';
 import {
   TrendingUp,
   TrendingDown,
-  Target,
   Zap,
-  Wifi
+  Wifi,
+  Calendar
 } from 'lucide-react';
 import { socketService } from '@/lib/socket';
 import { runSelectionScan } from '@/lib/api';
@@ -65,9 +65,6 @@ export default function UnifiedCommandPage() {
     };
 
     socketService.onPriceUpdate(handler);
-
-    // No cleanup needed — handlers accumulate on the singleton
-    // But we trigger an immediate sort when connecting
     setLastSortTime(Date.now());
   }, [capitalStreaming]);
 
@@ -81,7 +78,7 @@ export default function UnifiedCommandPage() {
     return () => clearInterval(interval);
   }, [capitalStreaming]);
 
-  // 4. Proximity Calculation
+  // 4. Proximity Calculation (client-side, for live re-ranking)
   const calculateProximity = (currentPrice: number, planA: number | null, planB: number | null, atr: number) => {
     if (!currentPrice || (!planA && !planB)) return 999;
 
@@ -100,24 +97,34 @@ export default function UnifiedCommandPage() {
     const data = marketData.map(item => {
       const ticker = item.ticker;
 
-      // If streaming: use live price, otherwise use scan price
+      // Use backend-computed plan levels directly
+      const planA = item.plan_a ?? null;
+      const planB = item.plan_b ?? null;
+      const atr = item.atr || 0;
+      const cardDate = item.card_date || "N/A";
+
+      // Price: backend provides prox_alert.Price, or live WS price if streaming
+      const backendPrice = item.prox_alert.Price !== "N/A"
+        ? parseFloat(item.prox_alert.Price.replace('$', ''))
+        : null;
+
       let currentPrice: number | null = null;
       if (capitalStreaming) {
-        currentPrice = priceMapRef.current[ticker] || parseFloat(item.prox_alert.Price.replace('$', ''));
+        currentPrice = priceMapRef.current[ticker] || backendPrice;
       } else {
-        currentPrice = parseFloat(item.prox_alert.Price.replace('$', ''));
+        currentPrice = backendPrice;
       }
 
-      const planA = item.card?.screener_briefing?.Plan_A_Level ? parseFloat(item.card.screener_briefing.Plan_A_Level) : null;
-      const planB = item.card?.screener_briefing?.Plan_B_Level ? parseFloat(item.card.screener_briefing.Plan_B_Level) : null;
-      const atr = item.atr || 0;
+      // Backend-computed nearest level (used as default, overridden if live)
+      let nearestLevel = item.prox_alert.Type || 'N/A';
+      let nearestLevelValue = item.prox_alert.Level ?? null;
+      let proximityScore = item.prox_alert["Dist %"] ?? 999;
+      let nature = item.prox_alert.Nature || 'N/A';
 
-      const score = calculateProximity(currentPrice, planA, planB, atr);
+      // If streaming and we have a live price, recalculate proximity client-side
+      if (capitalStreaming && currentPrice && (planA || planB)) {
+        proximityScore = calculateProximity(currentPrice, planA, planB, atr);
 
-      let nearestLevel = 'N/A';
-      let nearestLevelValue: number | null = null;
-
-      if (planA !== null || planB !== null) {
         const distA = planA !== null ? Math.abs(currentPrice - planA) : Infinity;
         const distB = planB !== null ? Math.abs(currentPrice - planB) : Infinity;
         if (distA <= distB) {
@@ -127,23 +134,28 @@ export default function UnifiedCommandPage() {
           nearestLevel = 'PLAN B';
           nearestLevelValue = planB;
         }
+        nature = nearestLevelValue !== null && nearestLevelValue < currentPrice ? 'SUPPORT' : 'RESISTANCE';
       }
 
       return {
         ...item,
         livePrice: currentPrice,
-        proximityScore: score,
+        proximityScore,
         nearestLevel,
-        nearestLevelValue
+        nearestLevelValue,
+        nature,
+        cardDate,
+        hasPriceData: currentPrice !== null
       };
     });
 
     // Sort by Proximity Score only when streaming
     if (capitalStreaming) {
       return data.sort((a, b) => {
-        if (a.proximityScore !== b.proximityScore) {
-          return a.proximityScore - b.proximityScore;
-        }
+        // no-price tickers go to the end
+        if (a.hasPriceData && !b.hasPriceData) return -1;
+        if (!a.hasPriceData && b.hasPriceData) return 1;
+        if (a.proximityScore !== b.proximityScore) return a.proximityScore - b.proximityScore;
         return a.nearestLevel === 'PLAN A' ? -1 : 1;
       });
     }
@@ -176,7 +188,7 @@ export default function UnifiedCommandPage() {
           </div>
           <h2 className="text-3xl font-bold mb-4 tracking-tight">No Market Data Available</h2>
           <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
-            Click the <span className="text-emerald-400 font-bold">Connect</span> button in the header to stream live prices from Capital.com and rank cards by proximity to Plan A/B levels.
+            Click the <span className="text-emerald-400 font-bold">Connect</span> button in the header to stream live prices from Capital.com and rank cards by proximity.
           </p>
         </div>
       ) : (
@@ -185,11 +197,13 @@ export default function UnifiedCommandPage() {
           {rankedData.map((item, i) => {
             const isBullish = /bull|long/i.test(item.prox_alert.Bias || "");
             const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
-            const isSupport = item.nearestLevelValue !== null ? item.nearestLevelValue < item.livePrice : false;
+            const isSupport = item.nature === 'SUPPORT';
 
-            const cardClasses = isSupport
-              ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
-              : "border-l-rose-500 bg-rose-500/8 hover:bg-rose-500/12";
+            const cardClasses = !item.hasPriceData
+              ? "border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
+              : isSupport
+                ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
+                : "border-l-rose-500 bg-rose-500/8 hover:bg-rose-500/12";
 
             return (
               <Card
@@ -197,8 +211,8 @@ export default function UnifiedCommandPage() {
                 className={`p-5 border-l-4 group transition-all hover:scale-[1.02] duration-200 shadow-xl cursor-pointer !bg-opacity-100 relative overflow-hidden ${cardClasses}`}
                 onClick={() => setSelectedTicker(item.ticker)}
               >
-                {/* Rank Badge — only when streaming */}
-                {capitalStreaming && (
+                {/* Rank Badge — only when streaming and has price */}
+                {capitalStreaming && item.hasPriceData && (
                   <div className="absolute top-0 right-0 bg-primary/20 px-2 py-1 rounded-bl-lg">
                     <span className="text-[10px] font-black text-primary">#{i + 1}</span>
                   </div>
@@ -213,8 +227,10 @@ export default function UnifiedCommandPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">Proximity</div>
-                    <div className={`text-xl font-black font-mono ${item.proximityScore < 0.5 ? 'text-emerald-400 animate-pulse' : 'text-primary'}`}>
-                      {item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
+                    <div className={`text-xl font-black font-mono ${!item.hasPriceData ? 'text-muted-foreground' :
+                      item.proximityScore < 0.5 ? 'text-emerald-400 animate-pulse' : 'text-primary'
+                      }`}>
+                      {!item.hasPriceData ? '--' : item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -223,24 +239,48 @@ export default function UnifiedCommandPage() {
                   <div className="flex justify-between items-baseline">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Live Price</span>
                     <span className="font-mono font-bold text-lg text-white">
-                      {capitalStreaming ? `$${item.livePrice.toFixed(2)}` : '--'}
+                      {capitalStreaming && item.hasPriceData ? `$${item.livePrice.toFixed(2)}` : '--'}
                     </span>
                   </div>
                   <div className="flex justify-between items-baseline">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Nearest Plan</span>
-                    <span className={`font-mono font-bold text-lg ${isSupport ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <span className={`font-mono font-bold text-lg ${!item.hasPriceData ? 'text-muted-foreground' :
+                      isSupport ? 'text-emerald-400' : 'text-rose-400'
+                      }`}>
                       {item.nearestLevelValue !== null ? `$${item.nearestLevelValue.toFixed(2)}` : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between items-center pt-1 border-t border-white/5">
                     <span className="text-[9px] font-black text-muted-foreground uppercase">{item.nearestLevel}</span>
-                    <div className="flex items-center gap-1">
-                      {isSupport ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-rose-500" />}
-                      <span className={`text-[10px] font-bold ${isSupport ? 'text-emerald-500' : 'text-rose-500'}`}>
-                        {isSupport ? 'SUPPORT' : 'RESISTANCE'}
-                      </span>
+                    <div className="flex items-center gap-3">
+                      {/* Plan Classification (what the analyst plan says) */}
+                      {item.prox_alert.PlanNature && item.prox_alert.PlanNature !== 'N/A' && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${item.prox_alert.PlanNature === 'SUPPORT'
+                            ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                            : item.prox_alert.PlanNature === 'RESISTANCE'
+                              ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
+                              : 'text-zinc-400 border-zinc-500/30 bg-zinc-500/10'
+                          }`}>
+                          PLAN: {item.prox_alert.PlanNature}
+                        </span>
+                      )}
+                      {/* Price-Relative Behavior (live price vs level) */}
+                      {item.hasPriceData && (
+                        <div className="flex items-center gap-1">
+                          {isSupport ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-rose-500" />}
+                          <span className={`text-[9px] font-bold ${isSupport ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {isSupport ? '↑ ABOVE' : '↓ BELOW'}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
+                </div>
+
+                {/* Card Date Indicator */}
+                <div className="mt-3 flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+                  <Calendar className="w-3 h-3" />
+                  <span className="font-mono">Card: {item.cardDate}</span>
                 </div>
               </Card>
             );
