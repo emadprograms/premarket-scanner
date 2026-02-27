@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ColorType, CandlestickSeries } from 'lightweight-charts';
+import { createChart, IChartApi, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Badge } from '@/components/ui/core';
 import { getChartBars } from '@/lib/api';
 import {
@@ -106,6 +106,57 @@ export default function ChartPlanView({
             if (bars.length > 0) {
                 series.setData(bars);
                 setBarCount(bars.length);
+
+                // Add session background bands: pre-market (amber) + post-market (blue)
+                // Classify bars by session and create colored background rectangles via histogram
+                const ET_OFFSET = -5 * 3600; // ET = UTC-5
+                const preMarketBg: any[] = [];
+                const postMarketBg: any[] = [];
+
+                for (const bar of bars) {
+                    const utcHour = new Date(bar.time * 1000).getUTCHours();
+                    const etHour = (utcHour + 24 + Math.floor(ET_OFFSET / 3600)) % 24;
+                    const etMinute = new Date(bar.time * 1000).getUTCMinutes();
+                    const etTime = etHour + etMinute / 60;
+
+                    if (etTime >= 4 && etTime < 9.5) {
+                        // Pre-market: amber background
+                        preMarketBg.push({ time: bar.time, value: 1 });
+                        postMarketBg.push({ time: bar.time, value: 0 });
+                    } else if (etTime >= 16 && etTime < 20) {
+                        // Post-market: blue background
+                        preMarketBg.push({ time: bar.time, value: 0 });
+                        postMarketBg.push({ time: bar.time, value: 1 });
+                    } else {
+                        preMarketBg.push({ time: bar.time, value: 0 });
+                        postMarketBg.push({ time: bar.time, value: 0 });
+                    }
+                }
+
+                // Pre-market amber background band
+                const preBgSeries = chart.addSeries(HistogramSeries, {
+                    color: 'rgba(217, 119, 6, 0.15)',
+                    priceScaleId: 'bg',
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                });
+                preBgSeries.setData(preMarketBg);
+
+                // Post-market blue background band
+                const postBgSeries = chart.addSeries(HistogramSeries, {
+                    color: 'rgba(59, 130, 246, 0.15)',
+                    priceScaleId: 'bg',
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                });
+                postBgSeries.setData(postMarketBg);
+
+                // Hide the bg price scale and make it fill the full chart height
+                chart.priceScale('bg').applyOptions({
+                    visible: false,
+                    scaleMargins: { top: 0, bottom: 0 },
+                });
+
                 // Show only the last ~60 bars so barSpacing stays fat
                 const from = Math.max(0, bars.length - 60);
                 chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 10 });
