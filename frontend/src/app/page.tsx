@@ -33,10 +33,11 @@ export default function UnifiedCommandPage() {
   const [lastSortTime, setLastSortTime] = useState(Date.now());
 
   // 1. Auto-load baseline data on mount
-  useEffect(() => {
-    const loadBaseline = async () => {
-      setIsLoading(true);
-      setIsBackendError(false);
+  const loadBaseline = async (retries = 3) => {
+    setIsLoading(true);
+    setIsBackendError(false);
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const scanRes = await runSelectionScan({
           benchmark_date: settings.benchmark_date,
@@ -50,28 +51,35 @@ export default function UnifiedCommandPage() {
 
         if (scanRes.status === "success") {
           setMarketData(scanRes.data.results || []);
-        } else {
-          // Handle API-level error status
-          setIsBackendError(true);
+          setIsBackendError(false);
+          setIsLoading(false);
+          return; // Success — exit
         }
       } catch (err) {
-        // Silent — Connection Offline UI handles this
-        setIsBackendError(true);
-      } finally {
-        setIsLoading(false);
+        // If not the last attempt, wait and retry
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 3000));
+          continue;
+        }
       }
-    };
+    }
 
+    // All retries exhausted
+    setIsBackendError(true);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
     loadBaseline();
   }, []);
 
-  // Sync isBackendError with systemStatus from context as a backup
+  // Auto-recovery: when status polling detects backend is back, retry the scan
   useEffect(() => {
-    if (systemStatus === null && !isLoading) {
-      // If we finished loading and status is still null, backend might be unreachable
-      // But we give it a bit of a grace period or wait for the fetch to actually fail
+    if (systemStatus && isBackendError && !isLoading) {
+      // Backend came back online — auto-retry
+      loadBaseline(2);
     }
-  }, [systemStatus, isLoading]);
+  }, [systemStatus]);
 
   // 2. Listen for WebSocket price updates when streaming
   useEffect(() => {
@@ -201,7 +209,7 @@ export default function UnifiedCommandPage() {
             The system is offline. Please contact the administrator to restore the connection.
           </p>
           <button
-            onClick={() => window.location.reload()}
+            onClick={() => loadBaseline(3)}
             className="mt-8 px-6 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-rose-400 text-sm font-bold transition-all"
           >
             Retry Connection
@@ -226,7 +234,7 @@ export default function UnifiedCommandPage() {
           </div>
           <h2 className="text-3xl font-bold mb-4 tracking-tight">No Market Data Available</h2>
           <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
-            Click the <span className="text-emerald-400 font-bold">Connect</span> button in the header to stream live prices from Capital.com and rank cards by proximity.
+            Click the <span className="text-violet-400 font-bold">Connect</span> button in the header to stream live prices from Capital.com and rank cards by proximity.
           </p>
         </div>
       ) : (
@@ -265,10 +273,10 @@ export default function UnifiedCommandPage() {
                   </div>
                   <div className="text-right">
                     <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">Proximity</div>
-                    <div className={`text-xl font-black font-mono ${!item.hasPriceData ? 'text-muted-foreground' :
-                      item.proximityScore < 0.5 ? 'text-emerald-400 animate-pulse' : 'text-primary'
+                    <div className={`text-xl font-black font-mono ${(!capitalStreaming || !item.hasPriceData) ? 'text-muted-foreground' :
+                      item.proximityScore < 0.5 ? 'text-violet-400 animate-pulse' : 'text-primary'
                       }`}>
-                      {!item.hasPriceData ? '--' : item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
+                      {!capitalStreaming || !item.hasPriceData ? '--' : item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
                     </div>
                   </div>
                 </div>

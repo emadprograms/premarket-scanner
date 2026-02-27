@@ -114,7 +114,7 @@ export default function Shell({ children }: ShellProps) {
                     <button className="p-2 text-muted-foreground hover:text-foreground transition-colors">
                         <Bell className="w-4 h-4" />
                     </button>
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-primary to-emerald-400 p-0.5">
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-primary to-violet-400 p-0.5">
                         <div className="w-full h-full rounded-full bg-background flex items-center justify-center">
                             <User className="w-3 h-3 text-primary" />
                         </div>
@@ -141,8 +141,8 @@ export default function Shell({ children }: ShellProps) {
                                 <button
                                     onClick={toggleCapitalStream}
                                     className={`group inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border transition-all duration-300 ${capitalStreaming
-                                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
-                                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
+                                        : 'bg-violet-500/10 border-violet-500/30 text-violet-400 hover:bg-violet-500/20'
                                         }`}
                                 >
                                     {capitalStreaming ? (
@@ -154,7 +154,7 @@ export default function Shell({ children }: ShellProps) {
                                         <>
                                             <div className="relative flex items-center gap-1">
                                                 <Wifi className="w-3 h-3" />
-                                                <div className="absolute inset-0 bg-emerald-500/30 blur-md rounded-full scale-150 animate-pulse" />
+                                                <div className="absolute inset-0 bg-violet-500/30 blur-md rounded-full scale-150 animate-pulse" />
                                             </div>
                                             Connect
                                         </>

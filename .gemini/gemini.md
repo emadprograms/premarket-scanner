@@ -118,6 +118,11 @@ The archive API returns cards with these exact field names — the frontend comp
 - **Decision: Screener Briefing as Default Modal**: When clicking a card, the modal shows the **screener briefing** (story of the day: justification, catalyst, pattern, Plan A/B with levels and S/R coloring) as the default view. A "Show Full Card" toggle expands to the full CompanyCardView.
 - **Decision: Plan Nature from Plan Text Only**: SUPPORT/RESISTANCE classification comes exclusively from the plan description text (e.g. "Long Support Defense" → SUPPORT). S_Levels and R_Levels are **NOT** used for classification — they are reference data only.
 - **Decision: Frontend Connect/Disconnect Control**: The header bar has an explicit Connect/Disconnect button for Capital.com streaming. Connection is user-initiated, not automatic. The old MissionControl component and Live Ranking Feed were removed.
+- **Decision: Violet Purple Theme**: Changed `--primary` from green (`#00cc96`) to violet (`#8b5cf6`). Green was misleading in a trading context (confused with bullish signals). Green is now reserved exclusively for SUPPORT labels, status dots (connected/healthy), and MARKET OPEN badge. Red stays for RESISTANCE and error states.
+- **Decision: Proximity Shows '--' Without Streaming**: Both proximity and live price display `--` when Capital.com is not connected, since proximity is meaningless without a live price feed.
+- **Decision: Robust Retry & Auto-Recovery**: The initial scan retries 3 times with 3s backoff before showing offline. Status polling is adaptive (10s when offline for fast recovery, 30s when connected). When the status poll detects the backend is back, it auto-triggers a scan retry — no manual reload needed. The "Retry Connection" button calls `loadBaseline()` directly instead of a full page reload.
+- **Decision: Silent Error Handling**: `console.error` calls for network failures were replaced with `console.warn` or removed entirely to prevent Next.js dev overlay from showing ugly stack traces. The "Connection Offline" UI and status bar handle error display visually.
+- **Decision: Axios Timeouts**: Global timeout is 30s (covers status, config). The scan endpoint gets 60s since it processes 20+ tickers with ATR + DB queries.
 
 ## 9. The Data Pipeline
 1.  **Load**: Fetch all active tickers from `aw_ticker_notes` in Turso.

@@ -78,16 +78,18 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
                 setSystemStatus(result.data);
             }
         } catch (err) {
-            // Silent — status bar already shows offline state
+            setSystemStatus(null); // Mark as offline so auto-recovery triggers when back
         }
     };
 
+    // Adaptive polling: 10s when offline (fast recovery), 30s when connected
     useEffect(() => {
         if (!mounted) return;
         refreshStatus();
-        const interval = setInterval(refreshStatus, 30000);
+        const pollInterval = systemStatus ? 30000 : 10000;
+        const interval = setInterval(refreshStatus, pollInterval);
         return () => clearInterval(interval);
-    }, [mounted]);
+    }, [mounted, systemStatus === null]);
 
     const toggleCapitalStream = useCallback(() => {
         setCapitalStreaming(prev => {
