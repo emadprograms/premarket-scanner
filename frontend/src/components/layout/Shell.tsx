@@ -77,14 +77,14 @@ export default function Shell({ children }: ShellProps) {
     const marketStatus = getMarketStatus();
 
     return (
-        <div className="flex h-screen bg-background overflow-hidden font-sans text-sm">
-            {/* Navigation Sidebar - Slimmer */}
-            <aside className="w-14 border-r border-border bg-zinc-950/50 flex flex-col items-center py-4 gap-6 z-50">
-                <div className="bg-primary/20 p-1.5 rounded-lg mb-2">
-                    <ShieldAlert className="w-5 h-5 text-primary" />
+        <div className="flex h-screen bg-background overflow-hidden font-sans text-[13px]">
+            {/* Navigation Sidebar - Ultra Slim */}
+            <aside className="w-12 border-r border-border bg-zinc-950/50 flex flex-col items-center py-3 gap-5 z-50">
+                <div className="bg-primary/20 p-1 rounded-lg mb-1">
+                    <ShieldAlert className="w-4 h-4 text-primary" />
                 </div>
 
-                <nav className="flex flex-col gap-4">
+                <nav className="flex flex-col gap-3.5">
                     {navItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = settings.workstation === item.id;
@@ -92,31 +92,31 @@ export default function Shell({ children }: ShellProps) {
                             <button
                                 key={item.id}
                                 onClick={() => updateSettings({ workstation: item.id as any })}
-                                className={`group relative p-2.5 rounded-lg transition-all duration-300 ${isActive
+                                className={`group relative p-2 rounded-lg transition-all duration-300 ${isActive
                                     ? `bg-white/10 ${item.color} shadow-lg shadow-white/5`
                                     : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
                                     }`}
                                 title={item.label}
                             >
-                                <Icon className="w-5 h-5" />
+                                <Icon className="w-4.5 h-4.5" />
                                 <div className={`absolute left-full ml-4 px-2 py-1 bg-zinc-900 border border-white/10 rounded text-[10px] font-bold whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-[60]`}>
                                     {item.label.toUpperCase()}
                                 </div>
                                 {isActive && (
-                                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-current rounded-r-full`} />
+                                    <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-current rounded-r-full`} />
                                 )}
                             </button>
                         );
                     })}
                 </nav>
 
-                <div className="mt-auto flex flex-col gap-4 items-center">
-                    <button className="p-2.5 text-muted-foreground hover:text-foreground transition-colors">
+                <div className="mt-auto flex flex-col gap-4 items-center pb-2">
+                    <button className="p-2 text-muted-foreground hover:text-foreground transition-colors">
                         <Bell className="w-4 h-4" />
                     </button>
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-primary to-emerald-400 p-0.5">
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-primary to-emerald-400 p-0.5">
                         <div className="w-full h-full rounded-full bg-background flex items-center justify-center">
-                            <User className="w-3.5 h-3.5 text-primary" />
+                            <User className="w-3 h-3 text-primary" />
                         </div>
                     </div>
                 </div>
@@ -125,37 +125,35 @@ export default function Shell({ children }: ShellProps) {
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
                 {/* Scrollable Container */}
                 <div className="flex-1 overflow-y-auto terminal-scroll">
-                    {/* Top Header - Compact */}
-                    <header className="sticky top-0 h-12 border-b border-border flex items-center justify-between px-6 bg-background z-[40] shadow-sm">
+                    {/* Top Header - Ultra Compact */}
+                    <header className="sticky top-0 h-10 border-b border-border flex items-center justify-between px-5 bg-background z-[40] shadow-sm">
                         <div className="flex items-center gap-6 flex-1">
                             <div className="flex items-center gap-3">
-                                <span className="font-black text-lg tracking-tighter uppercase">
+                                <span className="font-black text-base tracking-tighter uppercase">
                                     {navItems.find(n => n.id === settings.workstation)?.label || 'PREMARKET'}
                                 </span>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
                             {/* Connect / Disconnect Capital.com Button — only on Scanner */}
                             {settings.workstation === 'Scanner' && (
                                 <button
                                     onClick={toggleCapitalStream}
-                                    className={`group inline-flex items-center gap-2 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border transition-all duration-300 ${capitalStreaming
+                                    className={`group inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border transition-all duration-300 ${capitalStreaming
                                             ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
                                             : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
                                         }`}
                                 >
                                     {capitalStreaming ? (
                                         <>
-                                            <div className="relative">
-                                                <WifiOff className="w-3.5 h-3.5" />
-                                            </div>
+                                            <WifiOff className="w-3 h-3" />
                                             Disconnect
                                         </>
                                     ) : (
                                         <>
-                                            <div className="relative">
-                                                <Wifi className="w-3.5 h-3.5" />
+                                            <div className="relative flex items-center gap-1">
+                                                <Wifi className="w-3 h-3" />
                                                 <div className="absolute inset-0 bg-emerald-500/30 blur-md rounded-full scale-150 animate-pulse" />
                                             </div>
                                             Connect
@@ -165,14 +163,14 @@ export default function Shell({ children }: ShellProps) {
                             )}
 
                             <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded tracking-tighter">
+                                <span className="text-[9px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded tracking-tighter">
                                     EST {time || '--:--:--'}
                                 </span>
                             </div>
 
-                            <div className="flex items-center gap-2 pl-4 border-l border-border">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border border-white/5 transition-colors duration-500 ${marketStatus.color}`}>
-                                    <div className={`w-1 h-1 rounded-full mr-1.5 shadow-[0_0_8px_currentColor] ${marketStatus.label === 'MARKET OPEN' ? 'animate-pulse' : ''}`} />
+                            <div className="flex items-center gap-2 pl-3 border-l border-border">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border border-white/5 transition-colors duration-500 ${marketStatus.color}`}>
+                                    <div className={`w-1 h-1 rounded-full mr-1 shadow-[0_0_8px_currentColor] ${marketStatus.label === 'MARKET OPEN' ? 'animate-pulse' : ''}`} />
                                     {marketStatus.label}
                                 </span>
                             </div>
