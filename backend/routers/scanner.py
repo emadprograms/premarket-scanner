@@ -7,25 +7,19 @@ from backend.services.socket_manager import manager
 from backend.services.capital_socket import capital_ws
 from backend.engine.ranking_engine import ranking_engine
 from backend.engine.database import fetch_watchlist, get_eod_card_data_for_screener
+from backend.engine.card_extractor import extract_screener_briefing
 from backend.engine.processing import get_session_bars_routed, calculate_atr, ticker_to_epic
 import asyncio
 import json
-import re
 from datetime import datetime
 
 router = APIRouter()
 
-def extract_level_price(text: str) -> Optional[float]:
-    """Helper to extract float price from plan level text."""
-    if not text: return None
-    match = re.search(r'[\d.]+', str(text))
-    return float(match.group()) if match else None
-
 @router.post("/scan", response_model=GenericResponse)
 async def run_proximity_scan(request: ScannerRequest):
     """
-    The new 'Proximity Engine' entry point.
-    1. Fetches Plan A/B levels from Turso.
+    The 'Proximity Engine' entry point.
+    1. Fetches Plan A/B levels from Turso via card_extractor.
     2. Fetches 3 days of historical data to calculate ATR for normalization.
     3. Initializes/Updates the WebSocket feed for real-time prices.
     4. Calculates initial proximity and returns ranked results.
@@ -38,13 +32,10 @@ async def run_proximity_scan(request: ScannerRequest):
     if not watchlist:
         return GenericResponse(status="error", message="Watchlist is empty.")
 
-    # 1. Fetch Plan Levels from Turso
+    # 1. Fetch card data from Turso (aw_company_cards only)
     db_plans = get_eod_card_data_for_screener(turso, tuple(watchlist), request.benchmark_date, logger)
     
-    # 2. Fetch Historical Data for ATR & Setup WebSocket
-    ranked_candidates = []
-    
-    # We update the WebSocket service with the current watchlist (non-fatal)
+    # 2. Setup WebSocket (non-fatal)
     try:
         capital_ws.set_tickers(watchlist)
         if not capital_ws.running:
@@ -63,26 +54,10 @@ async def run_proximity_scan(request: ScannerRequest):
             atr = calculate_atr(df) if df is not None else 0.0
             
             plan_data = db_plans.get(ticker, {})
-            sb_text = plan_data.get("screener_briefing_text", "{}")
-            
-            # Robust Plan A/B Extraction
-            plan_a_val = None
-            plan_b_val = None
-            setup_bias = "Neutral"
-            
-            try:
-                if sb_text.strip().startswith("{"):
-                    sb_obj = json.loads(sb_text)
-                    plan_a_val = extract_level_price(sb_obj.get("Plan_A_Level"))
-                    plan_b_val = extract_level_price(sb_obj.get("Plan_B_Level"))
-                    setup_bias = sb_obj.get("Setup_Bias", "Neutral")
-                else:
-                    # Regex fallback for legacy string-based cards
-                    m_a = re.search(r'Plan_A_Level:\s*([\d.]+)', sb_text)
-                    m_b = re.search(r'Plan_B_Level:\s*([\d.]+)', sb_text)
-                    plan_a_val = float(m_a.group(1)) if m_a else None
-                    plan_b_val = float(m_b.group(1)) if m_b else None
-            except: pass
+            raw_card_json = plan_data.get("raw_card_json", "{}")
+
+            # Use the dedicated card_extractor for robust extraction
+            extracted = extract_screener_briefing(raw_card_json)
 
             # Get current price from WebSocket cache or fallback to last bar
             epic = ticker_to_epic(ticker)
@@ -92,17 +67,18 @@ async def run_proximity_scan(request: ScannerRequest):
             if not current_price and df is not None and not df.empty:
                 current_price = float(df['Close'].iloc[-1])
 
-            # Allow tickers with no price — they'll show as "--" on frontend
             return {
                 "ticker": ticker,
                 "current_price": current_price,
                 "atr": atr,
-                "plan_a": plan_a_val,
-                "plan_b": plan_b_val,
-                "setup_bias": setup_bias,
-                "s_levels": plan_data.get("s_levels", []),
-                "r_levels": plan_data.get("r_levels", []),
-                "card": json.loads(plan_data.get("raw_card_json", "{}")) if plan_data.get("raw_card_json") else None,
+                "plan_a": extracted["plan_a_level"],
+                "plan_b": extracted["plan_b_level"],
+                "plan_a_text": extracted["plan_a_text"],
+                "plan_b_text": extracted["plan_b_text"],
+                "plan_a_nature": extracted["plan_a_nature"],
+                "plan_b_nature": extracted["plan_b_nature"],
+                "setup_bias": extracted["setup_bias"],
+                "card": json.loads(raw_card_json) if raw_card_json and raw_card_json != "{}" else None,
                 "card_date": plan_data.get("card_date", "N/A")
             }
         except Exception as e:
@@ -114,20 +90,6 @@ async def run_proximity_scan(request: ScannerRequest):
     results = await asyncio.gather(*tasks)
     valid_results = [r for r in results if r is not None]
 
-    # Helper: Determine what the PLAN classifies a level as (Support or Resistance)
-    def _classify_plan_nature(level_val, s_levels, r_levels):
-        """Check if the nearest level value appears in S_Levels or R_Levels."""
-        if level_val is None:
-            return "N/A"
-        # Fuzzy match: levels may differ by a small amount due to float parsing
-        for s in s_levels:
-            if abs(s - level_val) < 0.02:
-                return "SUPPORT"
-        for r in r_levels:
-            if abs(r - level_val) < 0.02:
-                return "RESISTANCE"
-        return "UNKNOWN"
-
     # 3. Calculate Proximity & Rank (only for tickers with a price)
     priced_results = [r for r in valid_results if r.get("current_price")]
     unpriced_results = [r for r in valid_results if not r.get("current_price")]
@@ -135,36 +97,42 @@ async def run_proximity_scan(request: ScannerRequest):
     ranked_results = ranking_engine.rank_cards(priced_results)
 
     # 4. Format for Frontend
-    final_output = []
-    for r in ranked_results:
+    def _format_ticker(r, has_price=True):
         ticker = r["ticker"]
         level_val = r.get("nearest_level_value")
         level_type = r.get("nearest_level_type", "N/A")
         prox_score = r.get("proximity_score", 0)
         cur_price = r.get("current_price", 0)
-        s_levels = r.get("s_levels", [])
-        r_levels = r.get("r_levels", [])
-        
-        # Price-relative behavior (live price vs level)
-        if level_val is not None and cur_price:
+
+        # Price-relative behavior
+        if has_price and level_val is not None and cur_price:
             price_nature = "SUPPORT" if level_val < cur_price else "RESISTANCE"
             level_display = f"{level_type} (${level_val:.2f})"
         else:
             price_nature = "N/A"
-            level_display = f"{level_type} (N/A)"
+            level_display = f"{level_type} (N/A)" if has_price else "N/A"
 
-        # Plan classification (what the analyst plan says)
-        plan_nature = _classify_plan_nature(level_val, s_levels, r_levels)
-        
-        final_output.append({
+        # Plan nature — determined by which plan is nearest
+        if level_type == "PLAN A":
+            plan_nature = r.get("plan_a_nature", "UNKNOWN")
+        elif level_type == "PLAN B":
+            plan_nature = r.get("plan_b_nature", "UNKNOWN")
+        else:
+            plan_nature = "UNKNOWN"
+
+        return {
             "ticker": ticker,
             "plan_a": r.get("plan_a"),
             "plan_b": r.get("plan_b"),
+            "plan_a_text": r.get("plan_a_text", ""),
+            "plan_b_text": r.get("plan_b_text", ""),
+            "plan_a_nature": r.get("plan_a_nature", "UNKNOWN"),
+            "plan_b_nature": r.get("plan_b_nature", "UNKNOWN"),
             "atr": r.get("atr", 0),
             "card_date": r.get("card_date", "N/A"),
             "prox_alert": {
                 "Ticker": ticker,
-                "Price": f"${cur_price:.2f}" if cur_price else "N/A",
+                "Price": f"${cur_price:.2f}" if (has_price and cur_price) else "N/A",
                 "Type": level_type,
                 "Level": level_val,
                 "Dist %": round(prox_score, 2) if prox_score else 0,
@@ -175,45 +143,20 @@ async def run_proximity_scan(request: ScannerRequest):
             "card": r.get("card"),
             "table_row": {
                 "Ticker": ticker,
-                "Price": f"${cur_price:.2f}" if cur_price else "N/A",
+                "Price": f"${cur_price:.2f}" if (has_price and cur_price) else "N/A",
                 "Score": round(prox_score, 2) if prox_score else 0,
                 "Level": level_display
             }
-        })
+        }
 
-    # Append unpriced tickers at the end (no ranking, no price)
+    final_output = [_format_ticker(r, has_price=True) for r in ranked_results]
+    
+    # Unpriced tickers appended at end with no ranking
     for r in unpriced_results:
-        ticker = r["ticker"]
-        # Still classify plan nature for unpriced tickers if possible
-        plan_a = r.get("plan_a")
-        s_levels = r.get("s_levels", [])
-        r_levels_list = r.get("r_levels", [])
-        plan_nature = _classify_plan_nature(plan_a, s_levels, r_levels_list)
-
-        final_output.append({
-            "ticker": ticker,
-            "plan_a": plan_a,
-            "plan_b": r.get("plan_b"),
-            "atr": r.get("atr", 0),
-            "card_date": r.get("card_date", "N/A"),
-            "prox_alert": {
-                "Ticker": ticker,
-                "Price": "N/A",
-                "Type": "N/A",
-                "Level": None,
-                "Dist %": 0,
-                "Bias": r.get("setup_bias", "Neutral"),
-                "Nature": "N/A",
-                "PlanNature": plan_nature
-            },
-            "card": r.get("card"),
-            "table_row": {
-                "Ticker": ticker,
-                "Price": "N/A",
-                "Score": 0,
-                "Level": "N/A"
-            }
-        })
+        r["nearest_level_value"] = None
+        r["nearest_level_type"] = "N/A"
+        r["proximity_score"] = 0
+        final_output.append(_format_ticker(r, has_price=False))
 
     await logger.success(f"✅ Proximity Rank Complete. {len(final_output)} tickers active.")
     
@@ -225,4 +168,3 @@ async def run_proximity_scan(request: ScannerRequest):
             "summary": {"total": len(watchlist), "active": len(final_output)}
         }
     )
-

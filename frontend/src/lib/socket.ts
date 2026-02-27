@@ -53,6 +53,14 @@ class SocketService {
         this.priceHandlers.push(handler);
     }
 
+    offPriceUpdate(handler: PriceHandler) {
+        this.priceHandlers = this.priceHandlers.filter(h => h !== handler);
+    }
+
+    clearPriceHandlers() {
+        this.priceHandlers = [];
+    }
+
     disconnect() {
         this._autoReconnect = false;
         this._url = null;

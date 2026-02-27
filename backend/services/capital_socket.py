@@ -90,6 +90,9 @@ class CapitalWebSocketService:
             
             target_epics = {ticker_to_epic(t): t for t in self.tickers}
             
+            # Store reverse map for broadcasting user tickers
+            self._epic_to_ticker = target_epics
+            
             # Unsubscribe from removed epics
             to_remove = self.subscriptions - set(target_epics.keys())
             for epic in to_remove:
@@ -116,7 +119,6 @@ class CapitalWebSocketService:
     def _handle_message(self, data):
         # Capital.com WS message structure:
         # {"destination": "quote", "payload": {"epic": "...", "bid": ..., "ofr": ...}}
-        # Note: Capital.com changed 'ask' to 'ofr' and 'market.update' to 'quote'
         if data.get("destination") == "quote" or data.get("destination") == "market.update":
             payload = data.get("payload", {})
             epic = payload.get("epic")
@@ -127,18 +129,23 @@ class CapitalWebSocketService:
                 mid = (bid + ask) / 2
                 self.prices[epic] = {"bid": bid, "ask": ask, "mid": mid, "ts": time.time()}
                 
+                # Resolve user ticker from epic (e.g. "US500" → "SPY")
+                user_ticker = getattr(self, '_epic_to_ticker', {}).get(epic, epic)
+                
                 # Broadcast to all connected frontend clients
                 from backend.services.socket_manager import manager
                 import asyncio
                 
                 msg = {
                     "type": "PRICE_UPDATE",
-                    "ticker": epic, # Epic used as key for now
+                    "ticker": user_ticker,
+                    "epic": epic,
                     "price": mid,
+                    "bid": bid,
+                    "ask": ask,
                     "timestamp": datetime.now().isoformat()
                 }
                 
-                # Use call_soon_threadsafe or create_task if in the right loop
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
@@ -147,8 +154,9 @@ class CapitalWebSocketService:
                     pass
 
                 if self.on_price_update:
-                    self.on_price_update(epic, self.prices[epic])
+                    self.on_price_update(user_ticker, self.prices[epic])
 
 from datetime import datetime
 # Global instance
 capital_ws = CapitalWebSocketService()
+

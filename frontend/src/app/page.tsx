@@ -62,19 +62,24 @@ export default function UnifiedCommandPage() {
 
     const handler = (update: { ticker: string; price: number }) => {
       priceMapRef.current[update.ticker] = update.price;
+      // Trigger a re-render so the useMemo picks up the new price
+      setLastSortTime(Date.now());
     };
 
     socketService.onPriceUpdate(handler);
-    setLastSortTime(Date.now());
+
+    return () => {
+      socketService.offPriceUpdate(handler);
+    };
   }, [capitalStreaming]);
 
-  // 3. Periodic Re-sort every 5 seconds (only when streaming)
+  // 3. Periodic Re-sort every 2 seconds as a safety net (only when streaming)
   useEffect(() => {
     if (!capitalStreaming) return;
 
     const interval = setInterval(() => {
       setLastSortTime(Date.now());
-    }, 5000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [capitalStreaming]);
 
@@ -256,10 +261,10 @@ export default function UnifiedCommandPage() {
                       {/* Plan Classification (what the analyst plan says) */}
                       {item.prox_alert.PlanNature && item.prox_alert.PlanNature !== 'N/A' && (
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${item.prox_alert.PlanNature === 'SUPPORT'
-                            ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                            : item.prox_alert.PlanNature === 'RESISTANCE'
-                              ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
-                              : 'text-zinc-400 border-zinc-500/30 bg-zinc-500/10'
+                          ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                          : item.prox_alert.PlanNature === 'RESISTANCE'
+                            ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
+                            : 'text-zinc-400 border-zinc-500/30 bg-zinc-500/10'
                           }`}>
                           PLAN: {item.prox_alert.PlanNature}
                         </span>
