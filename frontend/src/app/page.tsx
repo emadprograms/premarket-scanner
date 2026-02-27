@@ -55,7 +55,7 @@ export default function UnifiedCommandPage() {
           setIsBackendError(true);
         }
       } catch (err) {
-        console.error("Auto-load scan failed:", err);
+        // Silent — Connection Offline UI handles this
         setIsBackendError(true);
       } finally {
         setIsLoading(false);
@@ -200,7 +200,7 @@ export default function UnifiedCommandPage() {
           <p className="text-muted-foreground max-w-md text-lg leading-relaxed">
             The system is offline. Please contact the administrator to restore the connection.
           </p>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="mt-8 px-6 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-xl text-rose-400 text-sm font-bold transition-all"
           >
