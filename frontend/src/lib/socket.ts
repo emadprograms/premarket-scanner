@@ -5,9 +5,14 @@ class SocketService {
     private socket: WebSocket | null = null;
     private logHandlers: LogHandler[] = [];
     private priceHandlers: PriceHandler[] = [];
+    private _autoReconnect = false;
+    private _url: string | null = null;
 
     connect(url: string) {
         if (this.socket?.readyState === WebSocket.OPEN) return;
+
+        this._url = url;
+        this._autoReconnect = true;
 
         try {
             this.socket = new WebSocket(url);
@@ -19,12 +24,10 @@ class SocketService {
         this.socket.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                
-                // Route message based on type
+
                 if (data.type === 'PRICE_UPDATE') {
                     this.priceHandlers.forEach(h => h(data));
                 } else {
-                    // Default to log handler for legacy support
                     this.logHandlers.forEach(h => h(data));
                 }
             } catch (err) {
@@ -33,8 +36,12 @@ class SocketService {
         };
 
         this.socket.onclose = () => {
-            console.log('Socket closed. Reconnecting in 5s...');
-            setTimeout(() => this.connect(url), 5000);
+            if (this._autoReconnect && this._url) {
+                console.log('Socket closed. Reconnecting in 5s...');
+                setTimeout(() => this.connect(this._url!), 5000);
+            } else {
+                console.log('Socket closed (manual disconnect).');
+            }
         };
     }
 
@@ -47,9 +54,16 @@ class SocketService {
     }
 
     disconnect() {
+        this._autoReconnect = false;
+        this._url = null;
         if (this.socket) {
             this.socket.close();
+            this.socket = null;
         }
+    }
+
+    isConnected(): boolean {
+        return this.socket?.readyState === WebSocket.OPEN;
     }
 }
 

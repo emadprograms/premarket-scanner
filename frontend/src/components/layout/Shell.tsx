@@ -1,40 +1,30 @@
 "use client";
 
 import React, { useEffect } from 'react';
-import { socketService } from '@/lib/socket';
 import {
     Bell,
     Search,
     User,
-    Activity,
     Target,
     History,
-    ShieldAlert
+    ShieldAlert,
+    Wifi,
+    WifiOff
 } from 'lucide-react';
 import { useMission } from '@/lib/context';
-import { API_BASE_URL } from '@/lib/api';
 
 interface ShellProps {
     children: React.ReactNode;
 }
 
 export default function Shell({ children }: ShellProps) {
-    const { settings, updateSettings, systemStatus } = useMission();
+    const { settings, updateSettings, systemStatus, capitalStreaming, toggleCapitalStream } = useMission();
 
-    // Use empty string or constant on first render to prevent SSR/CSR hydration mismatch
     const [time, setTime] = React.useState<string>('--:--:--');
     const [mounted, setMounted] = React.useState(false);
 
     useEffect(() => {
         setMounted(true);
-        // Connect to WebSocket on mount
-        let wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
-        // Force secure websockets for ngrok tunnels to prevent mixed-content blocking
-        if (API_BASE_URL.includes('ngrok')) {
-            wsProtocol = 'wss';
-        }
-        const wsUrl = `${wsProtocol}://${API_BASE_URL.replace(/^https?:\/\//, '')}/ws/logs`;
-        socketService.connect(wsUrl);
 
         setTime(new Date().toLocaleTimeString());
         const timer = setInterval(() => {
@@ -42,7 +32,6 @@ export default function Shell({ children }: ShellProps) {
         }, 1000);
 
         return () => {
-            socketService.disconnect();
             clearInterval(timer);
         };
     }, []);
@@ -58,7 +47,6 @@ export default function Shell({ children }: ShellProps) {
     const getMarketStatus = () => {
         if (!time) return { label: 'LOADING...', color: 'bg-zinc-500/10 text-zinc-500' };
 
-        // Current time in ET
         const now = new Date();
         const etString = now.toLocaleString("en-US", { timeZone: "America/New_York" });
         const etDate = new Date(etString);
@@ -71,15 +59,12 @@ export default function Shell({ children }: ShellProps) {
         const isWeekend = day === 0 || day === 6;
         if (isWeekend) return { label: 'MARKET CLOSED', color: 'bg-zinc-500/10 text-zinc-500' };
 
-        // Pre-Market: 4:00 AM - 9:30 AM
         if (timeAsMinutes >= 240 && timeAsMinutes < 570) {
             return { label: 'PRE-MARKET', color: 'bg-yellow-500/10 text-yellow-500' };
         }
-        // Market Open: 9:30 AM - 4:00 PM
         if (timeAsMinutes >= 570 && timeAsMinutes < 960) {
             return { label: 'MARKET OPEN', color: 'bg-emerald-500/10 text-emerald-500 font-bold' };
         }
-        // Post-Market: 4:00 PM - 8:00 PM
         if (timeAsMinutes >= 960 && timeAsMinutes < 1200) {
             return { label: 'POST-MARKET', color: 'bg-blue-500/10 text-blue-500' };
         }
@@ -87,14 +72,13 @@ export default function Shell({ children }: ShellProps) {
         return { label: 'MARKET CLOSED', color: 'bg-zinc-500/10 text-zinc-500' };
     };
 
-    // Prevent hydration mismatch by returning a shell or null until first client mount
     if (!mounted) return <div className="h-screen bg-background" />;
 
     const marketStatus = getMarketStatus();
 
     return (
         <div className="flex h-screen bg-background overflow-hidden font-sans">
-            {/* NEW: Navigation Sidebar */}
+            {/* Navigation Sidebar */}
             <aside className="w-16 border-r border-border bg-zinc-950/50 flex flex-col items-center py-6 gap-8 z-50">
                 <div className="bg-primary/20 p-2 rounded-xl mb-4">
                     <ShieldAlert className="w-6 h-6 text-primary" />
@@ -141,7 +125,7 @@ export default function Shell({ children }: ShellProps) {
             <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
                 {/* Scrollable Container */}
                 <div className="flex-1 overflow-y-auto terminal-scroll">
-                    {/* Top Header - Sticky inside scroll container */}
+                    {/* Top Header */}
                     <header className="sticky top-0 h-16 border-b border-border flex items-center justify-between px-8 bg-background z-[40] shadow-sm">
                         <div className="flex items-center gap-8 flex-1">
                             <div className="flex items-center gap-3">
@@ -161,6 +145,34 @@ export default function Shell({ children }: ShellProps) {
                         </div>
 
                         <div className="flex items-center gap-6">
+                            {/* Connect / Disconnect Capital.com Button — only on Scanner */}
+                            {settings.workstation === 'Scanner' && (
+                                <button
+                                    onClick={toggleCapitalStream}
+                                    className={`group inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider border transition-all duration-300 ${capitalStreaming
+                                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
+                                            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                                        }`}
+                                >
+                                    {capitalStreaming ? (
+                                        <>
+                                            <div className="relative">
+                                                <WifiOff className="w-4 h-4" />
+                                            </div>
+                                            Disconnect
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="relative">
+                                                <Wifi className="w-4 h-4" />
+                                                <div className="absolute inset-0 bg-emerald-500/30 blur-md rounded-full scale-150 animate-pulse" />
+                                            </div>
+                                            Connect
+                                        </>
+                                    )}
+                                </button>
+                            )}
+
                             <div className="flex items-center gap-2">
                                 <span className="text-xs font-mono text-muted-foreground bg-muted px-2.5 py-1 rounded tracking-tighter">
                                     EST {time || '--:--:--'}
@@ -212,3 +224,4 @@ export default function Shell({ children }: ShellProps) {
         </div>
     );
 }
+

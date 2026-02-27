@@ -1,7 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import dayjs from 'dayjs';
+import { socketService } from './socket';
+import { API_BASE_URL } from './api';
 
 interface MissionSettings {
     model_name: string;
@@ -14,7 +16,7 @@ interface MissionSettings {
     use_full_context: boolean;
     confluence_mode: 'Strict' | 'Flexible';
     force_economy_refresh: boolean;
-    workstation: 'Scanner' | 'Archive'; // NEW: Workstation state
+    workstation: 'Scanner' | 'Archive';
 }
 
 interface SystemStatus {
@@ -30,7 +32,9 @@ interface SystemStatus {
 interface MissionContextType {
     settings: MissionSettings;
     systemStatus: SystemStatus | null;
+    capitalStreaming: boolean;
     updateSettings: (updates: Partial<MissionSettings>) => void;
+    toggleCapitalStream: () => void;
 }
 
 const defaultSettings: MissionSettings = {
@@ -54,11 +58,11 @@ import { getSystemStatus } from './api';
 export function MissionProvider({ children }: { children: React.ReactNode }) {
     const [settings, setSettings] = useState<MissionSettings>(defaultSettings);
     const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+    const [capitalStreaming, setCapitalStreaming] = useState(false);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
         setMounted(true);
-        // Only on client: sync initial dates if needed
         setSettings(prev => ({
             ...prev,
             benchmark_date: dayjs().format('YYYY-MM-DD'),
@@ -69,9 +73,7 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
     const refreshStatus = async () => {
         if (!mounted) return;
         try {
-            console.log("MissionProvider: Fetching system status...");
             const result = await getSystemStatus();
-            console.log("MissionProvider: Status Result:", result);
             if (result.status === 'success') {
                 setSystemStatus(result.data);
             }
@@ -83,25 +85,39 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         if (!mounted) return;
         refreshStatus();
-        const interval = setInterval(refreshStatus, 30000); // 30s poll
+        const interval = setInterval(refreshStatus, 30000);
         return () => clearInterval(interval);
     }, [mounted]);
+
+    const toggleCapitalStream = useCallback(() => {
+        setCapitalStreaming(prev => {
+            const next = !prev;
+            if (next) {
+                // Connect WebSocket
+                let wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
+                if (API_BASE_URL.includes('ngrok')) wsProtocol = 'wss';
+                const wsUrl = `${wsProtocol}://${API_BASE_URL.replace(/^https?:\/\//, '')}/ws/logs`;
+                socketService.connect(wsUrl);
+            } else {
+                // Disconnect WebSocket
+                socketService.disconnect();
+            }
+            return next;
+        });
+    }, []);
 
     const updateSettings = (updates: Partial<MissionSettings>) => {
         setSettings(prev => {
             const newSettings = { ...prev, ...updates };
-
-            // Auto-update cutoff if benchmark date changes
             if (updates.benchmark_date && !updates.simulation_cutoff) {
                 newSettings.simulation_cutoff = `${updates.benchmark_date} 09:30:00`;
             }
-
             return newSettings;
         });
     };
 
     return (
-        <MissionContext.Provider value={{ settings, systemStatus, updateSettings }}>
+        <MissionContext.Provider value={{ settings, systemStatus, capitalStreaming, updateSettings, toggleCapitalStream }}>
             {children}
         </MissionContext.Provider>
     );
