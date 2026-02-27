@@ -78,7 +78,7 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
                 setSystemStatus(result.data);
             }
         } catch (err) {
-            console.error("MissionProvider: Failed to fetch system status:", err);
+            // Silent — status bar already shows offline state
         }
     };
 

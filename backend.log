@@ -1,0 +1,10 @@
+INFO:backend.engine.infisical_manager:✅ Infisical: SDK Connected (Project: ffb5a204-84df-444b-915b-d20fd5b2efac, Env: dev)
+INFO:backend.engine.key_manager:✅ KeyManager: Connected to Remote Turso (https://analyst-workbench-database-emada...)
+INFO:backend.engine.key_manager:ℹ️ KeyManager: No new Gemini keys to sync.
+INFO:     Started server process [9266]
+INFO:     Waiting for application startup.
+INFO:backend.main:✅ Capital.com WebSocket service started.
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8000): [errno 48] address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.

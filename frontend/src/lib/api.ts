@@ -21,6 +21,7 @@ console.log(`[API] Initializing client with Base URL: ${API_BASE_URL}`);
 
 const api = axios.create({
     baseURL: API_BASE_URL,
+    timeout: 30000, // 30s — backend can be slow during startup/key sync
     headers: {
         'Content-Type': 'application/json',
         'ngrok-skip-browser-warning': 'true',
@@ -32,10 +33,7 @@ api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.message === 'Network Error') {
-            console.error('[API] Network Error detected. Possible causes:');
-            console.error('1. Backend is not running on ' + API_BASE_URL);
-            console.error('2. CORS preflight (OPTIONS) failed.');
-            console.error('3. Browser blocked the request (Mixed Content or AdBlock).');
+            console.warn('[API] Backend unreachable.');
         }
         return Promise.reject(error);
     }
@@ -54,7 +52,7 @@ export const runMacroAnalysis = async (params: any) => {
 };
 
 export const runSelectionScan = async (params: any) => {
-    const { data } = await api.post('/api/scanner/scan', params);
+    const { data } = await api.post('/api/scanner/scan', params, { timeout: 60000 }); // 60s — scan processes many tickers
     return data;
 };
 
