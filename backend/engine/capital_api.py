@@ -33,9 +33,9 @@ def create_capital_session_v2():
         return None, None
         
     # Attempt variants (Prioritizing exact match from user dashboard)
-    api_key = mgr.get_secret("capital_com_X_CAP_API_KEY")
-    identifier = mgr.get_secret("capital_com_IDENTIFIER")
-    password = mgr.get_secret("capital_com_PASSWORD")
+    api_key = mgr.get_secret("capital_com_x_cap_api_key")
+    identifier = mgr.get_secret("capital_com_identifier")
+    password = mgr.get_secret("capital_com_password")
     
     if not api_key or not identifier or not password:
         print(f"❌ AUTH DEBUG: Missing Keys. API_KEY={bool(api_key)}, ID={bool(identifier)}, PASS={bool(password)}")

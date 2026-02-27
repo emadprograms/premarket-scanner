@@ -64,18 +64,7 @@ class CapitalWebSocketService:
                     self.ws = websocket
                     log.info("✅ Capital WS: Connected.")
                     
-                    # 1. Authenticate
-                    auth_payload = {
-                        "destination": "control.session",
-                        "correlationId": "1",
-                        "payload": {
-                            "cst": self.cst,
-                            "xst": self.xst
-                        }
-                    }
-                    await self.ws.send(json.dumps(auth_payload))
-                    
-                    # 2. Sync Subscriptions
+                    # 2. Sync Subscriptions (Tokens are passed here)
                     await self._sync_subscriptions()
 
                     # 3. Listen for updates
@@ -105,7 +94,9 @@ class CapitalWebSocketService:
             to_remove = self.subscriptions - set(target_epics.keys())
             for epic in to_remove:
                 await self.ws.send(json.dumps({
-                    "destination": "market.unsub",
+                    "destination": "marketData.unsubscribe",
+                    "cst": self.cst,
+                    "securityToken": self.xst,
                     "payload": {"epics": [epic]}
                 }))
                 self.subscriptions.remove(epic)
@@ -114,7 +105,9 @@ class CapitalWebSocketService:
             to_add = set(target_epics.keys()) - self.subscriptions
             if to_add:
                 await self.ws.send(json.dumps({
-                    "destination": "market.sub",
+                    "destination": "marketData.subscribe",
+                    "cst": self.cst,
+                    "securityToken": self.xst,
                     "payload": {"epics": list(to_add)}
                 }))
                 self.subscriptions.update(to_add)
@@ -122,12 +115,13 @@ class CapitalWebSocketService:
 
     def _handle_message(self, data):
         # Capital.com WS message structure:
-        # {"destination": "market.update", "payload": {"epic": "...", "bid": ..., "ask": ...}}
-        if data.get("destination") == "market.update":
+        # {"destination": "quote", "payload": {"epic": "...", "bid": ..., "ofr": ...}}
+        # Note: Capital.com changed 'ask' to 'ofr' and 'market.update' to 'quote'
+        if data.get("destination") == "quote" or data.get("destination") == "market.update":
             payload = data.get("payload", {})
             epic = payload.get("epic")
             bid = payload.get("bid")
-            ask = payload.get("ask")
+            ask = payload.get("ofr") or payload.get("ask")
             
             if epic and bid and ask:
                 mid = (bid + ask) / 2
