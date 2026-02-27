@@ -1,35 +1,55 @@
 from fastapi import APIRouter
 from backend.services.context import context
-from backend.engine.capital_api import create_capital_session_v2
 from backend.engine.database import fetch_watchlist
-from backend.routers.macro import load_cached_card, CACHE_FILE
 import os
 import json
 import time
+import logging
 from datetime import datetime
+
+log = logging.getLogger(__name__)
+
+# Import Capital API and macro cache with fallback
+try:
+    from backend.engine.capital_api import create_capital_session_v2
+except ImportError:
+    create_capital_session_v2 = None
+
+try:
+    from backend.routers.macro import load_cached_card, CACHE_FILE, CACHE_VALIDITY_MINUTES
+except ImportError:
+    load_cached_card = None
+    CACHE_FILE = "data/economy_card_cache.json"
+    CACHE_VALIDITY_MINUTES = 150
 
 router = APIRouter()
 
 @router.get("/status")
 async def get_system_status():
-    km = context.get_km()
-    
     # 1. Check Gemini Keys
-    available_keys = len(km.available_keys)
+    available_keys = 0
+    try:
+        km = context.get_km()
+        available_keys = len(km.available_keys)
+    except Exception:
+        pass
     
     # 2. Check Capital.com Connectivity
+    capital_connected = False
     try:
-        cst, xst = create_capital_session_v2()
-        capital_connected = (cst is not None and xst is not None)
-    except:
-        capital_connected = False
+        if create_capital_session_v2:
+            cst, xst = create_capital_session_v2()
+            capital_connected = (cst is not None and xst is not None)
+    except Exception:
+        pass
     
     # 3. Check DB
+    db_connected = False
     try:
         context.get_db().execute("SELECT 1")
         db_connected = True
-    except:
-        db_connected = False
+    except Exception:
+        pass
 
     # 4. Check Economy Card Cache
     economy_card_cached = False
@@ -40,15 +60,13 @@ async def get_system_status():
                 cache_data = json.load(f)
                 cached_ts = cache_data.get('timestamp')
                 if cached_ts:
-                    # Check if it's still valid according to the same logic as load_cached_card
-                    from backend.routers.macro import CACHE_VALIDITY_MINUTES
                     ts_dt = datetime.fromisoformat(cached_ts)
                     age_minutes = (datetime.now() - ts_dt).total_seconds() / 60
                     if age_minutes < CACHE_VALIDITY_MINUTES:
                         economy_card_cached = True
                         tz_name = time.tzname[time.daylight] if hasattr(time, 'tzname') else ""
                         economy_card_updated = f"{ts_dt.strftime('%H:%M:%S')} {tz_name}".strip()
-    except:
+    except Exception:
         pass
 
     return {
@@ -94,9 +112,15 @@ async def key_diagnostics():
 @router.get("/watchlist-status")
 async def get_watchlist_status():
     """Returns company card coverage for all watchlist companies."""
+    import asyncio
+    
     db = context.get_db()
     
-    tickers = fetch_watchlist(db, None)
+    try:
+        tickers = await asyncio.to_thread(fetch_watchlist, db, None)
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to fetch watchlist: {e}", "data": []}
+    
     if not tickers:
         return {"status": "error", "message": "No tickers in watchlist", "data": []}
     
@@ -104,18 +128,28 @@ async def get_watchlist_status():
     placeholders = ','.join(['?'] * len(tickers))
     
     # Live cards
-    rs_live = db.execute(
-        f"SELECT ticker, MAX(timestamp) as latest FROM deep_dive_cards WHERE ticker IN ({placeholders}) GROUP BY ticker",
-        tickers
-    )
-    live_map = {row[0]: row[1] for row in rs_live.rows}
+    live_map = {}
+    try:
+        rs_live = await asyncio.to_thread(
+            db.execute,
+            f"SELECT ticker, MAX(timestamp) as latest FROM deep_dive_cards WHERE ticker IN ({placeholders}) GROUP BY ticker",
+            tickers
+        )
+        live_map = {row[0]: row[1] for row in rs_live.rows}
+    except Exception as e:
+        log.warning(f"Live cards query failed: {e}")
     
     # EOD cards
-    rs_eod = db.execute(
-        f"SELECT ticker, MAX(date) as latest_date, COUNT(*) as total FROM company_cards WHERE ticker IN ({placeholders}) GROUP BY ticker",
-        tickers
-    )
-    eod_map = {row[0]: {"date": row[1], "total": row[2]} for row in rs_eod.rows}
+    eod_map = {}
+    try:
+        rs_eod = await asyncio.to_thread(
+            db.execute,
+            f"SELECT ticker, MAX(date) as latest_date, COUNT(*) as total FROM aw_company_cards WHERE ticker IN ({placeholders}) GROUP BY ticker",
+            tickers
+        )
+        eod_map = {row[0]: {"date": row[1], "total": row[2]} for row in rs_eod.rows}
+    except Exception as e:
+        log.warning(f"EOD cards query failed: {e}")
     
     rows = []
     for t in tickers:

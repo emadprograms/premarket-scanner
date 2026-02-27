@@ -14,7 +14,7 @@ interface MissionSettings {
     use_full_context: boolean;
     confluence_mode: 'Strict' | 'Flexible';
     force_economy_refresh: boolean;
-    workstation: 'Scanner' | 'Workbench' | 'Archive'; // NEW: Workstation state
+    workstation: 'Scanner' | 'Archive'; // NEW: Workstation state
 }
 
 interface SystemStatus {

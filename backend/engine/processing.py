@@ -725,3 +725,23 @@ def analyze_market_context(df, ref_levels, ticker="UNKNOWN", session_start_dt=No
     }
     
     return context_card
+
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> float:
+    """Calculates Average True Range from DataFrame with High, Low, Close."""
+    if df is None or len(df) < period + 1:
+        return 0.0
+    
+    # Ensure Title Case columns
+    h = df['High'] if 'High' in df.columns else df['high']
+    l = df['Low'] if 'Low' in df.columns else df['low']
+    c = df['Close'] if 'Close' in df.columns else df['close']
+    
+    # Calculate True Range
+    tr1 = h - l
+    tr2 = abs(h - c.shift(1))
+    tr3 = abs(l - c.shift(1))
+    
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.rolling(window=period).mean().iloc[-1]
+    
+    return float(atr) if not np.isnan(atr) else 0.0

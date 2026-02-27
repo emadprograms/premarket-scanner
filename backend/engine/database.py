@@ -81,6 +81,24 @@ def init_db_schema(client, logger: AppLogger):
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        client.execute("""
+            CREATE TABLE IF NOT EXISTS aw_economy_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL UNIQUE,
+                economy_card_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        client.execute("""
+            CREATE TABLE IF NOT EXISTS aw_company_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                date TEXT NOT NULL,
+                company_card_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(ticker, date)
+            );
+        """)
         if logger: logger.log("DB: Schema verified.")
     except Exception as e:
         if logger: logger.log(f"DB Error: {e}")
@@ -88,7 +106,7 @@ def init_db_schema(client, logger: AppLogger):
 
 def fetch_watchlist(client, logger: AppLogger) -> list[str]:
     try:
-        rs = client.execute("SELECT ticker FROM Stocks")
+        rs = client.execute("SELECT DISTINCT ticker FROM aw_ticker_notes")
         if rs.rows:
             return [r[0] for r in rs.rows]
         return []
@@ -100,7 +118,7 @@ def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -
     try:
         cutoff_date_part = cutoff_str.split(" ")[0]
         rs = _client.execute(
-            "SELECT MAX(date) FROM economy_cards WHERE date <= ?",
+            "SELECT MAX(date) FROM aw_economy_cards WHERE date <= ?",
             [cutoff_date_part]
         )
         return rs.rows[0][0] if rs.rows and rs.rows[0][0] else None
@@ -109,7 +127,7 @@ def get_latest_economy_card_date(_client, cutoff_str: str, _logger: AppLogger) -
 
 def get_eod_economy_card(_client, benchmark_date: str, _logger: AppLogger) -> dict:
     try:
-        rs = _client.execute("SELECT economy_card_json FROM economy_cards WHERE date = ?", (benchmark_date,))
+        rs = _client.execute("SELECT economy_card_json FROM aw_economy_cards WHERE date = ?", (benchmark_date,))
         return json.loads(rs.rows[0][0]) if rs.rows and rs.rows[0][0] else None
     except Exception as e:
         if _logger: _logger.log(f"DB Error (EOD Card): {e}")
@@ -196,7 +214,7 @@ def get_eod_card_data_for_screener(_client, ticker_tuple: tuple, benchmark_date:
                 WITH LatestEOD AS (
                     SELECT ticker, company_card_json, date,
                     ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) as rn
-                    FROM company_cards
+                    FROM aw_company_cards
                     WHERE date <= ? AND ticker IN ({r_placeholders})
                 )
                 SELECT ticker, company_card_json, date FROM LatestEOD WHERE rn = 1
@@ -289,4 +307,56 @@ def upsert_live_card(client, ticker: str, date_str: str, card_json: str) -> bool
             )
         return True
     except Exception:
+        return False
+
+
+def upsert_economy_card(client, date_str: str, card_json: str, logger: AppLogger = None) -> bool:
+    """Insert or update an economy card in the aw_economy_cards table."""
+    if not client or isinstance(client, LocalDBClient):
+        return False
+    try:
+        rs = client.execute(
+            "SELECT id FROM aw_economy_cards WHERE date = ?",
+            [date_str]
+        )
+        if rs.rows:
+            client.execute(
+                "UPDATE aw_economy_cards SET economy_card_json = ? WHERE date = ?",
+                [card_json, date_str]
+            )
+        else:
+            client.execute(
+                "INSERT INTO aw_economy_cards (date, economy_card_json) VALUES (?, ?)",
+                [date_str, card_json]
+            )
+        if logger: logger.log(f"DB: Economy card saved for {date_str}")
+        return True
+    except Exception as e:
+        if logger: logger.log(f"DB Error (upsert economy card): {e}")
+        return False
+
+
+def upsert_company_card(client, ticker: str, date_str: str, card_json: str, logger: AppLogger = None) -> bool:
+    """Insert or update a company card in the aw_company_cards table."""
+    if not client or isinstance(client, LocalDBClient):
+        return False
+    try:
+        rs = client.execute(
+            "SELECT id FROM aw_company_cards WHERE ticker = ? AND date = ?",
+            [ticker, date_str]
+        )
+        if rs.rows:
+            client.execute(
+                "UPDATE aw_company_cards SET company_card_json = ? WHERE ticker = ? AND date = ?",
+                [card_json, ticker, date_str]
+            )
+        else:
+            client.execute(
+                "INSERT INTO aw_company_cards (ticker, date, company_card_json) VALUES (?, ?, ?)",
+                [ticker, date_str, card_json]
+            )
+        if logger: logger.log(f"DB: Company card saved for {ticker} ({date_str})")
+        return True
+    except Exception as e:
+        if logger: logger.log(f"DB Error (upsert company card): {e}")
         return False

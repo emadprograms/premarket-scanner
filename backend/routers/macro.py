@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from backend.engine.time_utils import get_staleness_score
-from backend.engine.database import get_latest_economy_card_date, get_eod_economy_card
+from backend.engine.database import get_latest_economy_card_date, get_eod_economy_card, upsert_economy_card
 from backend.engine.processing import get_session_bars_routed, get_previous_session_stats
 from backend.engine.sentiment_engine import analyze_headline_sentiment
 from backend.engine.gemini import call_gemini_with_rotation
@@ -251,6 +251,12 @@ async def run_macro(request: MacroRequest, background_tasks: BackgroundTasks):
             
             # --- CACHE THE RESULT ---
             save_cached_card(final_card)
+            # --- PERSIST TO DB ---
+            try:
+                turso = context.get_db()
+                upsert_economy_card(turso, request.benchmark_date, json.dumps(final_card))
+            except Exception as db_err:
+                await logger.warn(f"⚠️ Failed to persist economy card to DB: {db_err}")
             # ------------------------
             
             await logger.info(f"🤖 AI VERDICT: {bias} | {leads} Leads | {lags} Lags.")

@@ -197,12 +197,13 @@ class KeyManager:
         
     def add_key(self, name: str, value: str, tier: str = 'free', display_order: int = 10):
         try:
+            # V8: Use UPSERT (INSERT OR REPLACE) to be idempotent
             self.db_client.execute(
-                "INSERT INTO gemini_api_keys (key_name, key_value, priority, tier) VALUES (?, ?, ?, ?)", 
+                "INSERT OR REPLACE INTO gemini_api_keys (key_name, key_value, priority, tier) VALUES (?, ?, ?, ?)", 
                 [name, value, display_order, tier]
             )
             self._refresh_keys_from_db()
-            return True, "Key added."
+            return True, "Key added/updated."
         except Exception as e: return False, str(e)
 
     def update_key_tier(self, name: str, new_tier: str):
@@ -294,11 +295,14 @@ class KeyManager:
             
         added_count = 0
         for s in secrets:
-            # s.secret_key and s.secret_value (snake_case from sdk v2)
-            name = s.secret_key.upper()
+            # SDK v2 uses camelCase: secretKey and secretValue
+            name = getattr(s, "secretKey", getattr(s, "secret_key", None))
+            if not name: continue
+            name = name.upper()
+            
             # Look for GEMINI_API_KEY, GEMINI_KEY_1, etc.
             if "GEMINI" in name and "KEY" in name:
-                val = s.secret_value
+                val = getattr(s, "secretValue", getattr(s, "secret_value", None))
                 if val:
                     # Determine tier from name or default to free
                     tier = 'paid' if 'PAID' in name else 'free'

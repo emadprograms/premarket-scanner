@@ -20,4 +20,13 @@ class ConnectionManager:
             except Exception:
                 pass # Connection might be closed
 
+    async def broadcast_json(self, data: dict):
+        import json
+        message = json.dumps(data)
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                pass
+
 manager = ConnectionManager()

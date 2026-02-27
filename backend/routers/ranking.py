@@ -13,8 +13,8 @@ router = APIRouter()
 def fetch_plan_safe(client_obj, ticker):
     query = """
         SELECT cc.company_card_json, s.historical_level_notes 
-        FROM company_cards cc
-        JOIN stocks s ON cc.ticker = s.ticker
+        FROM aw_company_cards cc
+        LEFT JOIN aw_ticker_notes s ON cc.ticker = s.ticker
         WHERE cc.ticker = ? ORDER BY cc.date DESC LIMIT 1
     """
     try:

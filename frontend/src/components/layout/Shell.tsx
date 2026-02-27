@@ -8,7 +8,6 @@ import {
     User,
     Activity,
     Target,
-    Cpu,
     History,
     ShieldAlert
 } from 'lucide-react';
@@ -53,7 +52,6 @@ export default function Shell({ children }: ShellProps) {
 
     const navItems = [
         { id: 'Scanner', icon: Target, label: 'Strategic HQ', color: 'text-primary' },
-        { id: 'Workbench', icon: Cpu, label: 'Intelligence Lab', color: 'text-violet-400' },
         { id: 'Archive', icon: History, label: 'Archive Room', color: 'text-blue-400' },
     ];
 

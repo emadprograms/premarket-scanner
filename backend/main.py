@@ -1,7 +1,7 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from typing import List
+import logging
 from datetime import datetime
 
 app = FastAPI(title="Premarket Scanner API", version="1.0.0")
@@ -10,7 +10,6 @@ app = FastAPI(title="Premarket Scanner API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*", "ngrok-skip-browser-warning"],
 )
@@ -44,12 +43,32 @@ def debug():
     return {"status": "debug", "time": str(datetime.now())}
 
 # Routers
-from backend.routers import macro, scanner, ranking, system, workbench
+from backend.routers import macro, scanner, ranking, system, archive
 app.include_router(macro.router, prefix="/api/macro", tags=["Macro"])
 app.include_router(scanner.router, prefix="/api/scanner", tags=["Scanner"])
 app.include_router(ranking.router, prefix="/api/ranking", tags=["Ranking"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
-app.include_router(workbench.router, prefix="/api/workbench", tags=["Workbench"])
+app.include_router(archive.router, prefix="/api/archive", tags=["Archive"])
+
+log = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the Capital.com WebSocket service (non-fatal if auth fails)
+    try:
+        from backend.services.capital_socket import capital_ws
+        await capital_ws.start()
+        log.info("✅ Capital.com WebSocket service started.")
+    except Exception as e:
+        log.error(f"⚠️ Capital.com WebSocket failed to start: {e}. Backend will run without live streaming.")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        from backend.services.capital_socket import capital_ws
+        await capital_ws.stop()
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

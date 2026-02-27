@@ -8,7 +8,7 @@ def sync_turso_to_local(turso_client, local_db_path, logger):
     Downloads key tables from Turso to a local SQLite database atomically.
     """
     temp_db_path = local_db_path + ".tmp"
-    essential_tables = ["stocks", "company_cards", "economy_cards", "symbol_map"]
+    essential_tables = ["aw_ticker_notes", "aw_company_cards", "aw_economy_cards", "symbol_map"]
     
     try:
         if os.path.exists(temp_db_path):

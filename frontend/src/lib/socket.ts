@@ -1,10 +1,14 @@
 type LogHandler = (log: any) => void;
+type PriceHandler = (update: { ticker: string, price: number, timestamp: string }) => void;
 
 class SocketService {
     private socket: WebSocket | null = null;
-    private handlers: LogHandler[] = [];
+    private logHandlers: LogHandler[] = [];
+    private priceHandlers: PriceHandler[] = [];
 
     connect(url: string) {
+        if (this.socket?.readyState === WebSocket.OPEN) return;
+
         try {
             this.socket = new WebSocket(url);
         } catch (error) {
@@ -14,8 +18,15 @@ class SocketService {
 
         this.socket.onmessage = (event) => {
             try {
-                const log = JSON.parse(event.data);
-                this.handlers.forEach((handler) => handler(log));
+                const data = JSON.parse(event.data);
+                
+                // Route message based on type
+                if (data.type === 'PRICE_UPDATE') {
+                    this.priceHandlers.forEach(h => h(data));
+                } else {
+                    // Default to log handler for legacy support
+                    this.logHandlers.forEach(h => h(data));
+                }
             } catch (err) {
                 console.error('Failed to parse socket message:', err);
             }
@@ -28,11 +39,11 @@ class SocketService {
     }
 
     onLog(handler: LogHandler) {
-        this.handlers.push(handler);
+        this.logHandlers.push(handler);
     }
 
-    offLog(handler: LogHandler) {
-        this.handlers = this.handlers.filter(h => h !== handler);
+    onPriceUpdate(handler: PriceHandler) {
+        this.priceHandlers.push(handler);
     }
 
     disconnect() {

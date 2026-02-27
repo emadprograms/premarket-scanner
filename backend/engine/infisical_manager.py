@@ -1,83 +1,90 @@
 import os
-import toml
+import logging
 from infisical_sdk import InfisicalSDKClient
 
+log = logging.getLogger(__name__)
+
 class InfisicalManager:
-    def __init__(self):
+    """
+    MODERN INFISICAL SDK MANAGER (SDK V2 - infisicalsdk)
+    Singleton that manages client connection, authentication and secret retrieval.
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(InfisicalManager, cls).__new__(cls)
+            cls._instance._init()
+        return cls._instance
+
+    def _init(self):
         self.client = None
         self.is_connected = False
         
-        # Load from Env or Secrets file
-        client_id = os.getenv("INFISICAL_CLIENT_ID")
-        client_secret = os.getenv("INFISICAL_CLIENT_SECRET")
+        # Load credentials from Environment (Standard Deployment)
+        self.client_id = os.getenv("INFISICAL_CLIENT_ID")
+        self.client_secret = os.getenv("INFISICAL_CLIENT_SECRET")
         self.project_id = os.getenv("INFISICAL_PROJECT_ID")
-        self.infisical_env = os.getenv("INFISICAL_ENV") or "dev"
-        
-        if not client_id:
-            try:
-                # Fallback to manual TOML if not in environment
-                secrets_path = os.path.join(os.getcwd(), ".streamlit/secrets.toml")
-                if os.path.exists(secrets_path):
-                    data = toml.load(secrets_path)
-                    sec = data.get("infisical", {})
-                    client_id = sec.get("client_id")
-                    client_secret = sec.get("client_secret")
-                    self.project_id = sec.get("project_id")
-                    print(f"[DEBUG] Loaded Infisical config from {secrets_path}")
-            except Exception as e:
-                print(f"[DEBUG] Infisical config load error: {e}")
-        
-        if client_id and client_secret:
-            try:
-                self.client = InfisicalSDKClient(host="https://app.infisical.com")
-                self.client.auth.universal_auth.login(
-                    client_id=client_id,
-                    client_secret=client_secret
-                )
-                self.is_connected = True
-                print(f"[OK] Infisical Connected (Project: {self.project_id}, Env: {self.infisical_env})")
-            except Exception as e:
-                print(f"[ERROR] Infisical Auth Failed: {e}")
-        else:
-            print("[INFO] Infisical Credentials Missing (optional, falling back to direct environment variables)")
+        self.infisical_env = os.getenv("INFISICAL_ENV", "dev")
 
-    def list_secrets(self, path="/", environment="dev"):
-        if not self.is_connected: return []
-        try:
-            response = self.client.secrets.list_secrets(
-                project_id=self.project_id,
-                environment_slug=environment,
-                secret_path=path
-            )
-            return response.secrets
-        except Exception as e:
-            print(f"[ERROR] Failed to list secrets: {e}")
-            return []
+        if self.client_id and self.client_secret:
+            self._connect()
 
-    def get_secret(self, secret_name):
-        if not self.is_connected: return os.getenv(secret_name)
+    def _connect(self):
+        """Initializes and authenticates the Infisical SDK Client."""
         try:
-            secret = self.client.secrets.get_secret_by_name(
-                secret_name=secret_name,
-                project_id=self.project_id,
-                environment_slug=self.infisical_env,
-                secret_path="/"
+            self.client = InfisicalSDKClient(host="https://app.infisical.com")
+            
+            # Universal Auth (Modern Pattern)
+            self.client.auth.universal_auth.login(
+                client_id=self.client_id,
+                client_secret=self.client_secret
             )
-            return getattr(secret, "secretValue", None)
+            
+            self.is_connected = True
+            log.info(f"✅ Infisical: SDK Connected (Project: {self.project_id}, Env: {self.infisical_env})")
         except Exception as e:
-            # Fallback to standard environment variable
-            return os.getenv(secret_name)
+            log.error(f"❌ Infisical Connection Error: {e}")
+            self.is_connected = False
 
-    def get_secret_ext(self, secret_name, environment):
-        if not self.is_connected: return os.getenv(secret_name)
-        try:
-            secret = self.client.secrets.get_secret_by_name(
-                secret_name=secret_name,
-                project_id=self.project_id,
-                environment_slug=environment,
-                secret_path="/"
-            )
-            return getattr(secret, "secretValue", None)
-        except Exception as e:
-            print(f"[DEBUG] get_secret_ext('{secret_name}', '{environment}'): {e}")
+    def get_secret_ext(self, secret_name: str, environment: str = None) -> str:
+        """Retrieves a secret from the specified environment (defaulting to self.infisical_env)."""
+        if not self.is_connected or not self.client:
             return None
+            
+        try:
+            target_env = environment if environment else self.infisical_env
+            secret = self.client.secrets.get_secret_by_name(
+                secret_name=secret_name,
+                environment_slug=target_env,
+                secret_path="/",
+                project_id=self.project_id
+            )
+            # SDK V2 uses secretValue
+            return getattr(secret, "secretValue", None)
+        except Exception as e:
+            log.debug(f"ℹ️ Infisical: Secret '{secret_name}' not found in '{target_env}': {e}")
+            return None
+
+    def get_secret(self, secret_name: str, environment: str = None) -> str:
+        """Alias for get_secret_ext for backward compatibility."""
+        return self.get_secret_ext(secret_name, environment)
+
+    def list_secrets(self, path: str = "/", environment: str = None) -> list:
+        """Lists all secrets in a given path and environment."""
+        if not self.is_connected or not self.client:
+            return []
+            
+        try:
+            target_env = environment if environment else self.infisical_env
+            resp = self.client.secrets.list_secrets(
+                environment_slug=target_env,
+                secret_path=path,
+                project_id=self.project_id,
+                include_imports=True
+            )
+            # list_secrets returns a ListSecretsResponse, we want the secrets list
+            return getattr(resp, "secrets", [])
+        except Exception as e:
+            log.error(f"❌ Infisical: Failed to list secrets: {e}")
+            return []

@@ -1,8 +1,22 @@
 import axios from 'axios';
 
 // Debug API Base URL selection - Sanitize inputs (remove quotes/trailing spaces that cause fatal URL parsing errors)
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-export const API_BASE_URL = rawApiUrl.trim().replace(/['"]+/g, '');
+const getBaseUrl = () => {
+    if (process.env.NEXT_PUBLIC_API_URL) {
+        return process.env.NEXT_PUBLIC_API_URL.trim().replace(/['"]+/g, '');
+    }
+    // Fallback logic for browser environments
+    if (typeof window !== 'undefined') {
+        // If we are on localhost, use 127.0.0.1 to avoid IPv6/localhost ambiguity on some systems
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            return `${window.location.protocol}//127.0.0.1:8000`;
+        }
+        return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+    return 'http://127.0.0.1:8000';
+};
+
+export const API_BASE_URL = getBaseUrl();
 console.log(`[API] Initializing client with Base URL: ${API_BASE_URL}`);
 
 const api = axios.create({
@@ -12,6 +26,20 @@ const api = axios.create({
         'ngrok-skip-browser-warning': 'true',
     },
 });
+
+// Add Interceptor to catch and log specific Network Errors
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.message === 'Network Error') {
+            console.error('[API] Network Error detected. Possible causes:');
+            console.error('1. Backend is not running on ' + API_BASE_URL);
+            console.error('2. CORS preflight (OPTIONS) failed.');
+            console.error('3. Browser blocked the request (Mixed Content or AdBlock).');
+        }
+        return Promise.reject(error);
+    }
+);
 
 export default api;
 
@@ -50,52 +78,21 @@ export const getWatchlistStatus = async () => {
     return data;
 };
 
-export const getWorkbenchNextDate = async () => {
-    const { data } = await api.get('/api/workbench/pipeline/next-date');
-    return data;
-};
-
-export const getDailyInput = async (date: string) => {
-    const { data } = await api.get(`/api/workbench/daily-input/${date}`);
-    return data;
-};
-
-export const saveDailyInput = async (date: string, newsText: string) => {
-    const { data } = await api.post('/api/workbench/daily-input/save', null, {
-        params: { date, news_text: newsText }
-    });
-    return data;
-};
-
-export const generateEconomyCard = async (date: string, newsText: string, modelConfig: string = "gemini-3-flash-free") => {
-    const { data } = await api.post('/api/workbench/economy/generate', null, {
-        params: { date, news_text: newsText, model_config: modelConfig }
-    });
-    return data;
-};
-
-export const generateCompanyCard = async (date: string, ticker: string, modelConfig: string = "gemini-3-flash-free") => {
-    const { data } = await api.post('/api/workbench/company/generate', null, {
-        params: { date, ticker, model_config: modelConfig }
-    });
-    return data;
-};
-
 export const getCards = async (category: string, date?: string) => {
-    const { data } = await api.get(`/api/workbench/cards/${category}`, {
+    const { data } = await api.get(`/api/archive/cards/${category}`, {
         params: { date }
     });
     return data;
 };
 
 export const updateCard = async (category: string, date: string, ticker: string | null, cardData: any) => {
-    const { data } = await api.post(`/api/workbench/cards/${category}/update`, cardData, {
+    const { data } = await api.post(`/api/archive/cards/${category}/update`, cardData, {
         params: { date, ticker }
     });
     return data;
 };
 export const deleteCard = async (category: string, date: string, ticker: string | null) => {
-    const { data } = await api.delete(`/api/workbench/cards/${category}/delete`, {
+    const { data } = await api.delete(`/api/archive/cards/${category}/delete`, {
         params: { date, ticker }
     });
     return data;
