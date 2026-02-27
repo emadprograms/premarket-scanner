@@ -108,12 +108,27 @@ export default function UnifiedCommandPage() {
 
       const score = calculateProximity(ticker, currentPrice, planA, planB, atr);
 
+      let nearestLevel = 'N/A';
+      let nearestLevelValue = null;
+
+      if (planA !== null || planB !== null) {
+        const distA = planA !== null ? Math.abs(currentPrice - planA) : Infinity;
+        const distB = planB !== null ? Math.abs(currentPrice - planB) : Infinity;
+        if (distA <= distB) {
+          nearestLevel = 'PLAN A';
+          nearestLevelValue = planA;
+        } else {
+          nearestLevel = 'PLAN B';
+          nearestLevelValue = planB;
+        }
+      }
+
       return {
         ...item,
         livePrice: currentPrice,
         proximityScore: score,
-        nearestLevel: score === (planA ? Math.abs(currentPrice - planA) / (atr || 1) : Infinity) ? 'PLAN A' : 'PLAN B',
-        nearestLevelValue: score === (planA ? Math.abs(currentPrice - planA) / (atr || 1) : Infinity) ? planA : planB
+        nearestLevel,
+        nearestLevelValue
       };
     });
 
@@ -237,7 +252,7 @@ export default function UnifiedCommandPage() {
               {rankedData.map((item, i) => {
                 const isBullish = /bull|long/i.test(item.prox_alert.Bias || "");
                 const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
-                const isSupport = item.nearestLevelValue < item.livePrice;
+                const isSupport = item.nearestLevelValue !== null ? item.nearestLevelValue < item.livePrice : false;
 
                 const cardClasses = isSupport
                   ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
@@ -264,7 +279,7 @@ export default function UnifiedCommandPage() {
                       <div className="text-right">
                         <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">Proximity</div>
                         <div className={`text-xl font-black font-mono ${item.proximityScore < 0.5 ? 'text-emerald-400 animate-pulse' : 'text-primary'}`}>
-                          {item.proximityScore.toFixed(2)}
+                          {item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
                         </div>
                       </div>
                     </div>
@@ -279,7 +294,7 @@ export default function UnifiedCommandPage() {
                       <div className="flex justify-between items-baseline">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Nearest Plan</span>
                         <span className={`font-mono font-bold text-lg ${isSupport ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          ${item.nearestLevelValue.toFixed(2)}
+                          {item.nearestLevelValue !== null ? `$${item.nearestLevelValue.toFixed(2)}` : 'N/A'}
                         </span>
                       </div>
                       <div className="flex justify-between items-center pt-1 border-t border-white/5">
