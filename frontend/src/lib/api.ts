@@ -56,6 +56,11 @@ export const runSelectionScan = async (params: any) => {
     return data;
 };
 
+export const getChartBars = async (ticker: string, days: number = 1) => {
+    const { data } = await api.get(`/api/scanner/bars/${ticker}`, { params: { days }, timeout: 15000 });
+    return data;
+};
+
 export const runRankingSynthesis = async (params: any) => {
     const { data } = await api.post('/api/ranking/rank', params);
     return data;

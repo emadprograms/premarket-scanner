@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { motion, LayoutGroup } from 'framer-motion';
 import { Card, Badge } from '@/components/ui/core';
 import { Modal } from '@/components/ui/Modal';
 import {
@@ -17,6 +18,7 @@ import { useMission } from '@/lib/context';
 import CardEditorView from '@/components/layout/CardEditorView';
 import CompanyCardView from '@/components/layout/CompanyCardView';
 import ScreenerBriefingView from '@/components/layout/ScreenerBriefingView';
+import ChartPlanView from '@/components/layout/ChartPlanView';
 
 export default function UnifiedCommandPage() {
   const { settings, systemStatus, capitalStreaming } = useMission();
@@ -27,6 +29,7 @@ export default function UnifiedCommandPage() {
   const [marketData, setMarketData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [showFullCard, setShowFullCard] = useState(false);
+  const [modalView, setModalView] = useState<'chart' | 'briefing' | 'card'>('chart');
 
   // Real-time Price State
   const priceMapRef = useRef<Record<string, number>>({});
@@ -239,106 +242,114 @@ export default function UnifiedCommandPage() {
         </div>
       ) : (
         /* Ranked Cards Dashboard */
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 animate-in fade-in slide-in-from-right-4 duration-500">
-          {rankedData.map((item, i) => {
-            const isBullish = /bull|long/i.test(item.prox_alert.Bias || "");
-            const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
-            const isSupport = item.nature === 'SUPPORT';
+        <LayoutGroup>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 animate-in fade-in slide-in-from-right-4 duration-500">
+            {rankedData.map((item, i) => {
+              const isBullish = /bull|long/i.test(item.prox_alert.Bias || "");
+              const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
+              const isSupport = item.nature === 'SUPPORT';
 
-            const cardClasses = !item.hasPriceData
-              ? "border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
-              : isSupport
-                ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
-                : "border-l-rose-500 bg-rose-500/8 hover:bg-rose-500/12";
+              const cardClasses = !item.hasPriceData
+                ? "border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
+                : isSupport
+                  ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
+                  : "border-l-rose-500 bg-rose-500/8 hover:bg-rose-500/12";
 
-            return (
-              <Card
-                key={item.ticker}
-                className={`p-5 border-l-4 group transition-all hover:scale-[1.02] duration-200 shadow-xl cursor-pointer !bg-opacity-100 relative overflow-hidden ${cardClasses}`}
-                onClick={() => setSelectedTicker(item.ticker)}
-              >
-                {/* Rank Badge — only when streaming and has price */}
-                {capitalStreaming && item.hasPriceData && (
-                  <div className="absolute top-0 right-0 bg-primary/20 px-2 py-1 rounded-bl-lg">
-                    <span className="text-[10px] font-black text-primary">#{i + 1}</span>
-                  </div>
-                )}
+              return (
+                <motion.div
+                  key={item.ticker}
+                  layoutId={item.ticker}
+                  layout
+                  transition={{ type: "spring", stiffness: 350, damping: 30 }}
+                >
+                  <Card
+                    className={`p-5 border-l-4 group transition-colors hover:scale-[1.02] duration-200 shadow-xl cursor-pointer !bg-opacity-100 relative overflow-hidden ${cardClasses}`}
+                    onClick={() => setSelectedTicker(item.ticker)}
+                  >
+                    {/* Rank Badge — only when streaming and has price */}
+                    {capitalStreaming && item.hasPriceData && (
+                      <div className="absolute top-0 right-0 bg-primary/20 px-2 py-1 rounded-bl-lg">
+                        <span className="text-[10px] font-black text-primary">#{i + 1}</span>
+                      </div>
+                    )}
 
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h4 className="font-black text-2xl tracking-tighter">{item.ticker}</h4>
-                    <Badge variant={isBullish ? 'success' : isBearish ? 'error' : 'default'} className="text-[9px] px-1.5 py-0 font-bold uppercase">
-                      {item.prox_alert.Bias}
-                    </Badge>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">Proximity</div>
-                    <div className={`text-xl font-black font-mono ${(!capitalStreaming || !item.hasPriceData) ? 'text-muted-foreground' :
-                      item.proximityScore < 0.5 ? 'text-violet-400 animate-pulse' : 'text-primary'
-                      }`}>
-                      {!capitalStreaming || !item.hasPriceData ? '--' : item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3 mt-4 bg-black/20 p-3 rounded-lg border border-white/5">
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Live Price</span>
-                    <span className="font-mono font-bold text-lg text-white">
-                      {capitalStreaming && item.hasPriceData ? `$${item.livePrice.toFixed(2)}` : '--'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Nearest Plan</span>
-                    <span className={`font-mono font-bold text-lg ${!item.hasPriceData ? 'text-muted-foreground' :
-                      isSupport ? 'text-emerald-400' : 'text-rose-400'
-                      }`}>
-                      {item.nearestLevelValue !== null ? `$${item.nearestLevelValue.toFixed(2)}` : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center pt-1 border-t border-white/5">
-                    <span className="text-[9px] font-black text-muted-foreground uppercase">{item.nearestLevel}</span>
-                    <div className="flex items-center gap-3">
-                      {/* Plan Classification (what the analyst plan says) */}
-                      {item.prox_alert.PlanNature && item.prox_alert.PlanNature !== 'N/A' && (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${item.prox_alert.PlanNature === 'SUPPORT'
-                          ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
-                          : item.prox_alert.PlanNature === 'RESISTANCE'
-                            ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
-                            : 'text-zinc-400 border-zinc-500/30 bg-zinc-500/10'
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h4 className="font-black text-2xl tracking-tighter">{item.ticker}</h4>
+                        <Badge variant={isBullish ? 'success' : isBearish ? 'error' : 'default'} className="text-[9px] px-1.5 py-0 font-bold uppercase">
+                          {item.prox_alert.Bias}
+                        </Badge>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">Proximity</div>
+                        <div className={`text-xl font-black font-mono ${(!capitalStreaming || !item.hasPriceData) ? 'text-muted-foreground' :
+                          item.proximityScore < 0.5 ? 'text-violet-400 animate-pulse' : 'text-primary'
                           }`}>
-                          PLAN: {item.prox_alert.PlanNature}
-                        </span>
-                      )}
-                      {/* Price-Relative Behavior (live price vs level) */}
-                      {item.hasPriceData && (
-                        <div className="flex items-center gap-1">
-                          {isSupport ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-rose-500" />}
-                          <span className={`text-[9px] font-bold ${isSupport ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {isSupport ? '↑ ABOVE' : '↓ BELOW'}
-                          </span>
+                          {!capitalStreaming || !item.hasPriceData ? '--' : item.proximityScore === 999 ? 'N/A' : item.proximityScore.toFixed(2)}
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
-                </div>
 
-                {/* Card Date Indicator */}
-                <div className="mt-3 flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
-                  <Calendar className="w-3 h-3" />
-                  <span className="font-mono">Card: {item.cardDate}</span>
-                </div>
-              </Card>
-            );
-          })}
-        </div>
+                    <div className="space-y-3 mt-4 bg-black/20 p-3 rounded-lg border border-white/5">
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Live Price</span>
+                        <span className="font-mono font-bold text-lg text-white">
+                          {capitalStreaming && item.hasPriceData ? `$${item.livePrice.toFixed(2)}` : '--'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-baseline">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Nearest Plan</span>
+                        <span className={`font-mono font-bold text-lg ${!item.hasPriceData ? 'text-muted-foreground' :
+                          isSupport ? 'text-emerald-400' : 'text-rose-400'
+                          }`}>
+                          {item.nearestLevelValue !== null ? `$${item.nearestLevelValue.toFixed(2)}` : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pt-1 border-t border-white/5">
+                        <span className="text-[9px] font-black text-muted-foreground uppercase">{item.nearestLevel}</span>
+                        <div className="flex items-center gap-3">
+                          {/* Plan Classification (what the analyst plan says) */}
+                          {item.prox_alert.PlanNature && item.prox_alert.PlanNature !== 'N/A' && (
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${item.prox_alert.PlanNature === 'SUPPORT'
+                              ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                              : item.prox_alert.PlanNature === 'RESISTANCE'
+                                ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
+                                : 'text-zinc-400 border-zinc-500/30 bg-zinc-500/10'
+                              }`}>
+                              PLAN: {item.prox_alert.PlanNature}
+                            </span>
+                          )}
+                          {/* Price-Relative Behavior (live price vs level) */}
+                          {item.hasPriceData && (
+                            <div className="flex items-center gap-1">
+                              {isSupport ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-rose-500" />}
+                              <span className={`text-[9px] font-bold ${isSupport ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                {isSupport ? '↑ ABOVE' : '↓ BELOW'}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Date Indicator */}
+                    <div className="mt-3 flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+                      <Calendar className="w-3 h-3" />
+                      <span className="font-mono">Card: {item.cardDate}</span>
+                    </div>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        </LayoutGroup>
       )}
 
-      {/* Modal: Screener Briefing (default) → Full Card (toggle) */}
+      {/* Modal: Chart + Plan (default) → Screener Briefing → Full Card */}
       <Modal
         isOpen={!!selectedTicker}
-        onClose={() => { setSelectedTicker(null); setShowFullCard(false); }}
-        title={`🔬 ${selectedTicker} - ${showFullCard ? 'Full Card' : 'Screener Briefing'}`}
+        onClose={() => { setSelectedTicker(null); setModalView('chart'); }}
+        title={`🔬 ${selectedTicker} — ${modalView === 'chart' ? 'Plan Levels' : modalView === 'briefing' ? 'Screener Briefing' : 'Full Card'}`}
         variant="default"
       >
         <div className="space-y-4 max-h-[70vh] overflow-y-auto terminal-scroll pr-2 pt-4">
@@ -351,27 +362,41 @@ export default function UnifiedCommandPage() {
               </div>
             );
 
-            return (
-              <>
-                {/* Toggle Button */}
-                <div className="flex items-center gap-2 mb-4">
-                  <button
-                    onClick={() => setShowFullCard(!showFullCard)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
-                  >
-                    <FileText className="w-3 h-3" />
-                    {showFullCard ? 'Show Briefing' : 'Show Full Card'}
-                  </button>
-                  <div className="h-px flex-1 bg-white/5" />
-                </div>
+            if (modalView === 'chart') {
+              return (
+                <ChartPlanView
+                  ticker={selectedTicker}
+                  planALevel={item.plan_a}
+                  planBLevel={item.plan_b}
+                  planAText={item.plan_a_text}
+                  planBText={item.plan_b_text}
+                  planANature={item.plan_a_nature}
+                  planBNature={item.plan_b_nature}
+                  livePrice={item.livePrice}
+                  setupBias={item.prox_alert?.Bias}
+                  onShowBriefing={() => setModalView('briefing')}
+                />
+              );
+            }
 
-                {showFullCard ? (
-                  <CompanyCardView
-                    card={item.card}
-                    ticker={selectedTicker}
-                    date={settings.benchmark_date}
-                  />
-                ) : (
+            if (modalView === 'briefing') {
+              return (
+                <>
+                  <div className="flex items-center gap-2 mb-4">
+                    <button
+                      onClick={() => setModalView('chart')}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
+                    >
+                      ← Back to Chart
+                    </button>
+                    <div className="h-px flex-1 bg-white/5" />
+                    <button
+                      onClick={() => setModalView('card')}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
+                    >
+                      <FileText className="w-3 h-3" /> Show Full Card
+                    </button>
+                  </div>
                   <ScreenerBriefingView
                     briefing={item.card?.screener_briefing || ''}
                     planAText={item.plan_a_text}
@@ -383,7 +408,27 @@ export default function UnifiedCommandPage() {
                     setupBias={item.prox_alert?.Bias}
                     ticker={selectedTicker}
                   />
-                )}
+                </>
+              );
+            }
+
+            // Full Card view
+            return (
+              <>
+                <div className="flex items-center gap-2 mb-4">
+                  <button
+                    onClick={() => setModalView('chart')}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-400 hover:text-white transition-all"
+                  >
+                    ← Back to Chart
+                  </button>
+                  <div className="h-px flex-1 bg-white/5" />
+                </div>
+                <CompanyCardView
+                  card={item.card}
+                  ticker={selectedTicker}
+                  date={settings.benchmark_date}
+                />
               </>
             );
           })()}

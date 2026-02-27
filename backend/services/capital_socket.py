@@ -4,6 +4,7 @@ import logging
 import time
 import websockets
 from typing import Dict, List, Optional, Set
+from datetime import datetime
 from backend.engine.capital_api import create_capital_session_v2
 
 log = logging.getLogger(__name__)
@@ -31,7 +32,10 @@ class CapitalWebSocketService:
         self.cst = None
         self.xst = None
         self._lock = asyncio.Lock()
-        self.on_price_update = None # Callback function(ticker, price_data)
+        self._epic_to_ticker: Dict[str, str] = {}
+        self._pending_tickers: Set[str] = set()  # Tickers queued before WS is ready
+        self._update_count = 0
+        self.on_price_update = None
 
     async def start(self):
         """Starts the background connection task."""
@@ -48,31 +52,48 @@ class CapitalWebSocketService:
     def set_tickers(self, tickers: List[str]):
         """Update the set of tickers to monitor."""
         self.tickers = set(tickers)
+        self._pending_tickers = set(tickers)  # Always queue for subscription
         if self.running and self.ws:
             asyncio.create_task(self._sync_subscriptions())
+        else:
+            log.info(f"Capital WS: Queued {len(tickers)} tickers (WS not ready yet)")
 
     async def _run_loop(self):
         while self.running:
             try:
+                log.info("Capital WS: Authenticating...")
                 self.cst, self.xst = create_capital_session_v2()
                 if not self.cst or not self.xst:
                     log.error("Capital WS: Auth failed. Retrying in 10s...")
                     await asyncio.sleep(10)
                     continue
 
+                log.info("Capital WS: Auth OK. Connecting to stream...")
                 async with websockets.connect(self.URL) as websocket:
                     self.ws = websocket
                     log.info("✅ Capital WS: Connected.")
                     
-                    # 2. Sync Subscriptions (Tokens are passed here)
-                    await self._sync_subscriptions()
+                    # Subscribe to any pending tickers
+                    if self._pending_tickers or self.tickers:
+                        await self._sync_subscriptions()
 
-                    # 3. Listen for updates
+                    # Listen for updates
                     while self.running:
-                        message = await self.ws.recv()
+                        message = await asyncio.wait_for(self.ws.recv(), timeout=30)
                         data = json.loads(message)
-                        self._handle_message(data)
+                        await self._handle_message(data)
 
+            except asyncio.TimeoutError:
+                log.warning("Capital WS: No data received in 30s. Sending ping...")
+                # Connection may be stale — force reconnect
+                if self.ws:
+                    try:
+                        await self.ws.ping()
+                    except Exception:
+                        log.warning("Capital WS: Ping failed. Reconnecting...")
+                        self.ws = None
+                        self.subscriptions.clear()
+                        await asyncio.sleep(2)
             except Exception as e:
                 log.error(f"Capital WS Error: {e}. Reconnecting in 5s...")
                 self.ws = None
@@ -84,8 +105,6 @@ class CapitalWebSocketService:
             return
             
         async with self._lock:
-            # Simple diff to find new subscriptions
-            # Capital.com EPICs are needed here.
             from backend.engine.processing import ticker_to_epic
             
             target_epics = {ticker_to_epic(t): t for t in self.tickers}
@@ -96,30 +115,38 @@ class CapitalWebSocketService:
             # Unsubscribe from removed epics
             to_remove = self.subscriptions - set(target_epics.keys())
             for epic in to_remove:
-                await self.ws.send(json.dumps({
-                    "destination": "marketData.unsubscribe",
-                    "cst": self.cst,
-                    "securityToken": self.xst,
-                    "payload": {"epics": [epic]}
-                }))
-                self.subscriptions.remove(epic)
+                try:
+                    await self.ws.send(json.dumps({
+                        "destination": "marketData.unsubscribe",
+                        "cst": self.cst,
+                        "securityToken": self.xst,
+                        "payload": {"epics": [epic]}
+                    }))
+                    self.subscriptions.remove(epic)
+                except Exception as e:
+                    log.error(f"Capital WS: Failed to unsubscribe {epic}: {e}")
 
             # Subscribe to new epics
             to_add = set(target_epics.keys()) - self.subscriptions
             if to_add:
-                await self.ws.send(json.dumps({
-                    "destination": "marketData.subscribe",
-                    "cst": self.cst,
-                    "securityToken": self.xst,
-                    "payload": {"epics": list(to_add)}
-                }))
-                self.subscriptions.update(to_add)
-                log.info(f"Capital WS: Subscribed to {list(to_add)}")
+                try:
+                    await self.ws.send(json.dumps({
+                        "destination": "marketData.subscribe",
+                        "cst": self.cst,
+                        "securityToken": self.xst,
+                        "payload": {"epics": list(to_add)}
+                    }))
+                    self.subscriptions.update(to_add)
+                    self._pending_tickers.clear()
+                    log.info(f"✅ Capital WS: Subscribed to {len(to_add)} epics: {list(to_add)}")
+                except Exception as e:
+                    log.error(f"Capital WS: Failed to subscribe: {e}")
 
-    def _handle_message(self, data):
-        # Capital.com WS message structure:
-        # {"destination": "quote", "payload": {"epic": "...", "bid": ..., "ofr": ...}}
-        if data.get("destination") == "quote" or data.get("destination") == "market.update":
+    async def _handle_message(self, data):
+        """Handle incoming WebSocket messages from Capital.com."""
+        dest = data.get("destination", "")
+        
+        if dest in ("quote", "market.update"):
             payload = data.get("payload", {})
             epic = payload.get("epic")
             bid = payload.get("bid")
@@ -129,12 +156,11 @@ class CapitalWebSocketService:
                 mid = (bid + ask) / 2
                 self.prices[epic] = {"bid": bid, "ask": ask, "mid": mid, "ts": time.time()}
                 
-                # Resolve user ticker from epic (e.g. "US500" → "SPY")
-                user_ticker = getattr(self, '_epic_to_ticker', {}).get(epic, epic)
+                # Resolve user ticker from epic
+                user_ticker = self._epic_to_ticker.get(epic, epic)
                 
                 # Broadcast to all connected frontend clients
                 from backend.services.socket_manager import manager
-                import asyncio
                 
                 msg = {
                     "type": "PRICE_UPDATE",
@@ -146,17 +172,20 @@ class CapitalWebSocketService:
                     "timestamp": datetime.now().isoformat()
                 }
                 
-                try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        loop.create_task(manager.broadcast_json(msg))
-                except Exception:
-                    pass
-
+                await manager.broadcast_json(msg)
+                
+                self._update_count += 1
+                if self._update_count % 50 == 1:
+                    log.info(f"📡 Capital WS: Price update #{self._update_count} — {user_ticker}=${mid:.2f}")
+                
                 if self.on_price_update:
                     self.on_price_update(user_ticker, self.prices[epic])
+        elif dest == "heartbeat":
+            pass  # Expected keepalive
+        else:
+            # Log unknown messages for debugging
+            if self._update_count < 5:
+                log.info(f"Capital WS msg: dest={dest}, keys={list(data.keys())}")
 
-from datetime import datetime
 # Global instance
 capital_ws = CapitalWebSocketService()
-

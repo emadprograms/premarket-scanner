@@ -8,7 +8,7 @@ from backend.services.capital_socket import capital_ws
 from backend.engine.ranking_engine import ranking_engine
 from backend.engine.database import fetch_watchlist, get_eod_card_data_for_screener
 from backend.engine.card_extractor import extract_screener_briefing
-from backend.engine.processing import get_session_bars_routed, calculate_atr, ticker_to_epic
+from backend.engine.processing import get_live_bars_from_yahoo, get_live_bars_from_capital, calculate_atr, ticker_to_epic
 import asyncio
 import json
 from datetime import datetime
@@ -45,12 +45,8 @@ async def run_proximity_scan(request: ScannerRequest):
 
     async def process_ticker(ticker):
         try:
-            # Get historical bars for ATR (3 days, 5m resolution)
-            df, _ = get_session_bars_routed(
-                turso, ticker, request.benchmark_date, request.simulation_cutoff,
-                mode=request.mode, days=3, resolution="MINUTE_5"
-            )
-            
+            # Get bars from Yahoo Finance (fast) — only needed for ATR, not charting
+            df = get_live_bars_from_yahoo(ticker, days=3, resolution="MINUTE_5")
             atr = calculate_atr(df) if df is not None else 0.0
             
             plan_data = db_plans.get(ticker, {})
@@ -168,3 +164,42 @@ async def run_proximity_scan(request: ScannerRequest):
             "summary": {"total": len(watchlist), "active": len(final_output)}
         }
     )
+
+
+@router.get("/bars/{ticker}")
+async def get_chart_bars(ticker: str, days: int = 1):
+    """
+    Fetch Capital.com bars for chart plotting.
+    Returns OHLC data for the requested ticker (default: last 16 hours / 1 day).
+    """
+    try:
+        turso = context.get_db()
+        df = get_live_bars_from_capital(ticker, client=turso, days=days, resolution="MINUTE_5")
+        
+        if df is None or df.empty:
+            return GenericResponse(status="empty", message=f"No Capital.com data for {ticker}", data={"bars": []})
+        
+        # Convert to JSON-serializable list of dicts
+        bars = []
+        for _, row in df.iterrows():
+            ts = row.get('timestamp')
+            # Convert timestamp to unix seconds
+            if hasattr(ts, 'timestamp'):
+                time_val = int(ts.timestamp())
+            else:
+                time_val = 0
+            bars.append({
+                "time": time_val,
+                "open": float(row['Open']),
+                "high": float(row['High']),
+                "low": float(row['Low']),
+                "close": float(row['Close']),
+            })
+        
+        return GenericResponse(
+            status="success",
+            message=f"{len(bars)} bars for {ticker}",
+            data={"bars": bars, "ticker": ticker}
+        )
+    except Exception as e:
+        return GenericResponse(status="error", message=str(e), data={"bars": []})
