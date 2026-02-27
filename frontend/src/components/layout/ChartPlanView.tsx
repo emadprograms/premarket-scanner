@@ -8,6 +8,10 @@ import {
     Target,
     BookOpen,
     ArrowUpDown,
+    ChevronDown,
+    ShieldAlert,
+    Activity,
+    Crosshair,
 } from 'lucide-react';
 
 interface ChartPlanViewProps {
@@ -20,6 +24,7 @@ interface ChartPlanViewProps {
     planBNature?: string;
     livePrice?: number | null;
     setupBias?: string;
+    card?: any;
     onShowBriefing?: () => void;
 }
 
@@ -33,6 +38,7 @@ export default function ChartPlanView({
     planBNature,
     livePrice,
     setupBias,
+    card,
     onShowBriefing,
 }: ChartPlanViewProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -40,6 +46,8 @@ export default function ChartPlanView({
     const [chartLoading, setChartLoading] = useState(true);
     const [chartError, setChartError] = useState<string | null>(null);
     const [barCount, setBarCount] = useState(0);
+    const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
+    const [showLevels, setShowLevels] = useState(false);
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -178,11 +186,52 @@ export default function ChartPlanView({
             if (nearestLevel !== null && nearestLevel !== undefined) {
                 series.createPriceLine({
                     price: nearestLevel,
-                    color: nearestNature === 'RESISTANCE' ? '#ef4444' : '#8b5cf6', // Violet for SUPPORT/long, red for RESISTANCE
+                    color: nearestNature === 'RESISTANCE' ? '#ef4444' : '#8b5cf6',
                     lineWidth: 2,
                     lineStyle: 2, // Dashed
                     axisLabelVisible: true,
                     title: `${nearestLabel} — $${nearestLevel.toFixed(2)}`,
+                });
+            }
+
+            // Plot S/R levels from the card as subtle dotted markers
+            if (card) {
+                const srLevels: { price: number; type: 'S' | 'R' }[] = [];
+                const parsePrice = (s: string) => {
+                    const m = s.match(/\$?([\d,.]+)/);
+                    return m ? parseFloat(m[1].replace(',', '')) : null;
+                };
+                let supZones = parseZones(card?.technicalStructure?.majorSupport);
+                let resZones = parseZones(card?.technicalStructure?.majorResistance);
+                // Fallback to screener_briefing S_Levels/R_Levels
+                if (supZones.length === 0 || resZones.length === 0) {
+                    const briefing = typeof card?.screener_briefing === 'string' ? card.screener_briefing : '';
+                    if (supZones.length === 0) {
+                        const sMatch = briefing.match(/S_Levels?:\s*\[?([^\]\n]+)/i);
+                        if (sMatch) supZones = sMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                    }
+                    if (resZones.length === 0) {
+                        const rMatch = briefing.match(/R_Levels?:\s*\[?([^\]\n]+)/i);
+                        if (rMatch) resZones = rMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                    }
+                }
+                supZones.forEach((z: string) => {
+                    const p = parsePrice(z);
+                    if (p && p !== planALevel && p !== planBLevel) srLevels.push({ price: p, type: 'S' });
+                });
+                resZones.forEach((z: string) => {
+                    const p = parsePrice(z);
+                    if (p && p !== planALevel && p !== planBLevel) srLevels.push({ price: p, type: 'R' });
+                });
+                srLevels.forEach(({ price, type }) => {
+                    series.createPriceLine({
+                        price,
+                        color: type === 'R' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(139, 92, 246, 0.25)',
+                        lineWidth: 1,
+                        lineStyle: 3, // Dotted
+                        axisLabelVisible: false,
+                        title: '',
+                    });
                 });
             }
 
@@ -280,67 +329,171 @@ export default function ChartPlanView({
                 <div className="text-[10px] text-amber-500/80 font-mono text-center">{chartError}</div>
             )}
 
+            {/* Price Ladder */}
+            {card && (() => {
+                // Primary source: technicalStructure
+                let supZones = parseZones(card.technicalStructure?.majorSupport);
+                let resZones = parseZones(card.technicalStructure?.majorResistance);
+
+                // Fallback: parse S_Levels/R_Levels from screener_briefing text
+                if (supZones.length === 0 || resZones.length === 0) {
+                    const briefing = typeof card.screener_briefing === 'string' ? card.screener_briefing : '';
+                    if (supZones.length === 0) {
+                        const sMatch = briefing.match(/S_Levels?:\s*\[?([^\]\n]+)/i);
+                        if (sMatch) supZones = sMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                    }
+                    if (resZones.length === 0) {
+                        const rMatch = briefing.match(/R_Levels?:\s*\[?([^\]\n]+)/i);
+                        if (rMatch) resZones = rMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                    }
+                }
+
+                if (supZones.length === 0 && resZones.length === 0) return null;
+
+                // Parse prices and build a sorted ladder
+                const parsePrice = (s: string) => {
+                    const m = s.match(/\$?([\d,.]+)/);
+                    return m ? parseFloat(m[1].replace(',', '')) : null;
+                };
+                const allLevels: { price: number; label: string; type: 'R' | 'S' }[] = [];
+                resZones.forEach((z: string) => { const p = parsePrice(z); if (p) allLevels.push({ price: p, label: z, type: 'R' }); });
+                supZones.forEach((z: string) => { const p = parsePrice(z); if (p) allLevels.push({ price: p, label: z, type: 'S' }); });
+                allLevels.sort((a, b) => b.price - a.price);
+
+                // Find where current price fits
+                const now = livePrice ?? 0;
+                let insertIdx = allLevels.findIndex(l => l.price < now);
+                if (insertIdx === -1) insertIdx = allLevels.length;
+
+                return (
+                    <div className="rounded-xl border border-white/10 overflow-hidden">
+                        <button
+                            onClick={() => setShowLevels(!showLevels)}
+                            className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-900/50 hover:bg-zinc-800/50 transition-colors cursor-pointer"
+                        >
+                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-sans">Price Ladder</span>
+                            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${showLevels ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showLevels && (
+                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                                {allLevels.map((lvl, i) => (
+                                    <React.Fragment key={i}>
+                                        {/* Insert NOW row right before first level below price */}
+                                        {i === insertIdx && now > 0 && (
+                                            <div className="flex items-center gap-3 px-4 py-2 bg-emerald-500/10 border-y border-emerald-500/30">
+                                                <div className="w-1 h-5 rounded-full bg-emerald-400" />
+                                                <span className="text-sm font-mono font-black text-emerald-400">
+                                                    ${now.toFixed(2)}
+                                                </span>
+                                                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/60 font-mono">NOW</span>
+                                            </div>
+                                        )}
+                                        <div className={`flex items-center gap-3 px-4 py-1.5 ${lvl.type === 'R' ? 'hover:bg-rose-500/5' : 'hover:bg-violet-500/5'
+                                            } transition-colors`}>
+                                            <div className={`w-1 h-4 rounded-full ${lvl.type === 'R' ? 'bg-rose-500/40' : 'bg-violet-500/40'}`} />
+                                            <span className={`text-sm font-mono font-bold w-20 ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'
+                                                }`}>
+                                                ${lvl.price.toFixed(2)}
+                                            </span>
+                                            <span className="text-xs text-zinc-500 font-mono truncate">
+                                                {lvl.label.replace(/\$?[\d,.]+\s*/, '').replace(/^\(/, '').replace(/\)$/, '')}
+                                            </span>
+                                        </div>
+                                    </React.Fragment>
+                                ))}
+                                {/* NOW row at bottom if price is below all levels */}
+                                {insertIdx === allLevels.length && now > 0 && (
+                                    <div className="flex items-center gap-3 px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30">
+                                        <div className="w-1 h-5 rounded-full bg-emerald-400" />
+                                        <span className="text-sm font-mono font-black text-emerald-400">
+                                            ${now.toFixed(2)}
+                                        </span>
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/60 font-mono">NOW</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
+
             {/* Plan Level Cards */}
             <div className="grid grid-cols-2 gap-3">
                 {/* Plan A */}
-                <div className={`p-3 rounded-xl border space-y-1.5 ${planANature === 'SUPPORT' ? 'bg-emerald-500/5 border-emerald-500/20' :
-                    planANature === 'RESISTANCE' ? 'bg-rose-500/5 border-rose-500/20' :
-                        'bg-violet-500/5 border-violet-500/20'
-                    }`}>
-                    <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                            <Target className="w-3 h-3" /> Plan A
+                <button
+                    onClick={() => setExpandedPlan(expandedPlan === 'A' ? null : 'A')}
+                    className={`text-left p-4 rounded-xl border transition-all duration-300 cursor-pointer ${planANature === 'RESISTANCE' ? 'bg-rose-500/5 border-rose-500/20 hover:border-rose-500/50 hover:bg-rose-500/10' :
+                        'bg-violet-500/5 border-violet-500/20 hover:border-violet-500/50 hover:bg-violet-500/10'
+                        } ${expandedPlan === 'A' ? 'col-span-2 ring-1 ring-violet-500/30' : ''}`}
+                >
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 font-sans">
+                            <Target className="w-3.5 h-3.5" /> Plan A
                         </span>
-                        {planANature && planANature !== 'UNKNOWN' && (
-                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${planANature === 'SUPPORT' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
-                                }`}>
-                                {planANature}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {planANature && planANature !== 'UNKNOWN' && (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${planANature === 'SUPPORT' ? 'bg-violet-500/15 text-violet-400' : 'bg-rose-500/15 text-rose-400'
+                                    }`}>
+                                    {planANature}
+                                </span>
+                            )}
+                            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${expandedPlan === 'A' ? 'rotate-180' : ''}`} />
+                        </div>
                     </div>
-                    <div className="font-mono font-black text-lg text-white">
+                    <div className="font-mono font-black text-2xl text-white mb-1">
                         {planALevel !== null && planALevel !== undefined ? `$${planALevel.toFixed(2)}` : 'N/A'}
                     </div>
-                    {planAText && (
-                        <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">{planAText}</p>
+                    {expandedPlan !== 'A' && planAText && (
+                        <p className="text-sm text-zinc-400 leading-relaxed line-clamp-1">{planAText}</p>
                     )}
-                    {distA !== null && (
-                        <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                            <ArrowUpDown className="w-3 h-3" />
+                    {expandedPlan !== 'A' && distA !== null && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
+                            <ArrowUpDown className="w-3.5 h-3.5" />
                             <span className="font-mono">${distA.toFixed(2)} away</span>
                         </div>
                     )}
-                </div>
+                    {expandedPlan === 'A' && (
+                        <PlanDetailSection plan={card?.openingTradePlan} fallbackText={planAText} dist={distA} />
+                    )}
+                </button>
 
                 {/* Plan B */}
-                <div className={`p-3 rounded-xl border space-y-1.5 ${planBNature === 'SUPPORT' ? 'bg-emerald-500/5 border-emerald-500/20' :
-                    planBNature === 'RESISTANCE' ? 'bg-rose-500/5 border-rose-500/20' :
-                        'bg-indigo-500/5 border-indigo-500/20'
-                    }`}>
-                    <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                            <Target className="w-3 h-3" /> Plan B
+                <button
+                    onClick={() => setExpandedPlan(expandedPlan === 'B' ? null : 'B')}
+                    className={`text-left p-4 rounded-xl border transition-all duration-300 cursor-pointer ${planBNature === 'RESISTANCE' ? 'bg-rose-500/5 border-rose-500/20 hover:border-rose-500/50 hover:bg-rose-500/10' :
+                        'bg-violet-500/5 border-violet-500/20 hover:border-violet-500/50 hover:bg-violet-500/10'
+                        } ${expandedPlan === 'B' ? 'col-span-2 ring-1 ring-indigo-500/30' : ''}`}
+                >
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 font-sans">
+                            <Target className="w-3.5 h-3.5" /> Plan B
                         </span>
-                        {planBNature && planBNature !== 'UNKNOWN' && (
-                            <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${planBNature === 'SUPPORT' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'
-                                }`}>
-                                {planBNature}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-2">
+                            {planBNature && planBNature !== 'UNKNOWN' && (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${planBNature === 'SUPPORT' ? 'bg-violet-500/15 text-violet-400' : 'bg-rose-500/15 text-rose-400'
+                                    }`}>
+                                    {planBNature}
+                                </span>
+                            )}
+                            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${expandedPlan === 'B' ? 'rotate-180' : ''}`} />
+                        </div>
                     </div>
-                    <div className="font-mono font-black text-lg text-white">
+                    <div className="font-mono font-black text-2xl text-white mb-1">
                         {planBLevel !== null && planBLevel !== undefined ? `$${planBLevel.toFixed(2)}` : 'N/A'}
                     </div>
-                    {planBText && (
-                        <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">{planBText}</p>
+                    {expandedPlan !== 'B' && planBText && (
+                        <p className="text-sm text-zinc-400 leading-relaxed line-clamp-1">{planBText}</p>
                     )}
-                    {distB !== null && (
-                        <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                            <ArrowUpDown className="w-3 h-3" />
+                    {expandedPlan !== 'B' && distB !== null && (
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2">
+                            <ArrowUpDown className="w-3.5 h-3.5" />
                             <span className="font-mono">${distB.toFixed(2)} away</span>
                         </div>
                     )}
-                </div>
+                    {expandedPlan === 'B' && (
+                        <PlanDetailSection plan={card?.alternativePlan} fallbackText={planBText} dist={distB} />
+                    )}
+                </button>
             </div>
 
             {/* Read Screener Briefing Button */}
@@ -355,6 +508,75 @@ export default function ChartPlanView({
             )}
         </div>
     );
+}
+
+/**
+ * Renders full plan details: name, trigger, abort, target flow, description.
+ */
+function PlanDetailSection({ plan, fallbackText, dist }: { plan: any; fallbackText?: string; dist: number | null }) {
+    return (
+        <div className="mt-3 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* Description (only if no structured plan data) */}
+            {fallbackText && (
+                <p className="text-base text-zinc-400 leading-relaxed font-mono font-medium">{fallbackText}</p>
+            )}
+
+            {/* Trigger */}
+            {plan?.trigger && (
+                <div className="bg-white/5 p-3 rounded-lg border border-white/5 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                        <Crosshair className="w-3.5 h-3.5 text-violet-400" />
+                        <span className="text-xs font-bold uppercase text-zinc-500 tracking-widest font-mono">Trigger</span>
+                    </div>
+                    <p className="text-sm text-zinc-200 leading-relaxed font-mono font-medium">{plan.trigger}</p>
+                </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+                {/* Abort / Invalidation */}
+                {plan?.invalidation && (
+                    <div className="bg-rose-500/5 p-3 rounded-lg border border-rose-500/10 space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <ShieldAlert className="w-3.5 h-3.5 text-rose-500/60" />
+                            <span className="text-xs font-bold uppercase text-rose-500/50 tracking-widest font-mono">Abort</span>
+                        </div>
+                        <p className="text-sm text-rose-200/80 font-mono font-medium">{plan.invalidation}</p>
+                    </div>
+                )}
+
+                {/* Target Flow / Expected Participant */}
+                {(plan?.expectedParticipant || plan?.scenario) && (
+                    <div className="bg-emerald-500/5 p-3 rounded-lg border border-emerald-500/10 space-y-1.5">
+                        <div className="flex items-center gap-1.5">
+                            <Activity className="w-3.5 h-3.5 text-emerald-500/60" />
+                            <span className="text-xs font-bold uppercase text-emerald-500/50 tracking-widest font-mono">Target Flow</span>
+                        </div>
+                        <p className="text-sm text-emerald-200/80 font-mono font-medium">{plan.expectedParticipant || plan.scenario}</p>
+                    </div>
+                )}
+            </div>
+
+            {/* Distance */}
+            {dist !== null && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ArrowUpDown className="w-3.5 h-3.5" />
+                    <span className="font-mono">${dist.toFixed(2)} away from current price</span>
+                </div>
+            )}
+
+            <div className="text-[10px] text-zinc-600 text-center pt-1 font-mono">Tap to close</div>
+        </div>
+    );
+}
+
+/**
+ * Parser for structural zones like "$305.50 (Prior Floor), $303 (Critical Support)"
+ */
+function parseZones(text: string | undefined): string[] {
+    if (!text || text === 'None' || text === 'none' || text === 'N/A') return [];
+    const clean = text.replace(/[\[\]]/g, '');
+    const levels = clean.split(/,(?![^(]*\))/);
+    return levels.map(l => l.trim()).filter(l => l.length > 0 && l !== 'None' && l !== 'N/A');
 }
 
 /**

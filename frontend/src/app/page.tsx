@@ -418,6 +418,7 @@ export default function UnifiedCommandPage() {
                   planBNature={item.plan_b_nature}
                   livePrice={item.livePrice}
                   setupBias={item.prox_alert?.Bias}
+                  card={item.card}
                   onShowBriefing={() => setModalView('briefing')}
                 />
               );
