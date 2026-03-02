@@ -427,18 +427,18 @@ export default function ChartPlanView({
                         } ${expandedPlan === 'A' ? 'col-span-2 ring-1 ring-violet-500/30' : ''}`}
                 >
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 font-sans">
-                            <Target className="w-3.5 h-3.5" /> Plan A
-                        </span>
                         <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 font-sans">
+                                <Target className="w-3.5 h-3.5" /> Plan A
+                            </span>
                             {planANature && planANature !== 'UNKNOWN' && (
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${planANature === 'SUPPORT' ? 'bg-violet-500/15 text-violet-400' : 'bg-rose-500/15 text-rose-400'
                                     }`}>
                                     {planANature}
                                 </span>
                             )}
-                            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${expandedPlan === 'A' ? 'rotate-180' : ''}`} />
                         </div>
+                        <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${expandedPlan === 'A' ? 'rotate-180' : ''}`} />
                     </div>
                     <div className="font-mono font-black text-2xl text-white mb-1">
                         {planALevel !== null && planALevel !== undefined ? `$${planALevel.toFixed(2)}` : 'N/A'}
@@ -465,18 +465,18 @@ export default function ChartPlanView({
                         } ${expandedPlan === 'B' ? 'col-span-2 ring-1 ring-indigo-500/30' : ''}`}
                 >
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 font-sans">
-                            <Target className="w-3.5 h-3.5" /> Plan B
-                        </span>
                         <div className="flex items-center gap-2">
+                            <span className="text-xs font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5 font-sans">
+                                <Target className="w-3.5 h-3.5" /> Plan B
+                            </span>
                             {planBNature && planBNature !== 'UNKNOWN' && (
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${planBNature === 'SUPPORT' ? 'bg-violet-500/15 text-violet-400' : 'bg-rose-500/15 text-rose-400'
                                     }`}>
                                     {planBNature}
                                 </span>
                             )}
-                            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${expandedPlan === 'B' ? 'rotate-180' : ''}`} />
                         </div>
+                        <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${expandedPlan === 'B' ? 'rotate-180' : ''}`} />
                     </div>
                     <div className="font-mono font-black text-2xl text-white mb-1">
                         {planBLevel !== null && planBLevel !== undefined ? `$${planBLevel.toFixed(2)}` : 'N/A'}

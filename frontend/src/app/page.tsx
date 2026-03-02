@@ -308,6 +308,11 @@ export default function UnifiedCommandPage() {
               const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
               const isSupport = item.nature === 'SUPPORT';
 
+              const entryPrice = isSupport
+                ? (item.liveAsk || item.livePrice)
+                : (item.liveBid || item.livePrice);
+              const priceLabel = isSupport ? 'Ask' : 'Bid';
+
               const cardClasses = !item.hasPriceData
                 ? "border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
                 : isSupport
@@ -325,13 +330,6 @@ export default function UnifiedCommandPage() {
                   if (numMatches && numMatches.length > 0) {
                     // Find the number in the text that is closest to the live price.
                     // This prevents extracting bullet points like "1." or other stray numbers as the stop loss.
-                    // Entry price based on trade direction:
-                    // Support (Long) -> buy at Ask
-                    // Resistance (Short) -> sell at Bid
-                    const entryPrice = isSupport
-                      ? (item.liveAsk || item.livePrice)
-                      : (item.liveBid || item.livePrice);
-
                     let bestPrice = parseFloat(numMatches[0]);
                     let bestDiff = Math.abs(entryPrice - bestPrice);
 
@@ -390,9 +388,11 @@ export default function UnifiedCommandPage() {
 
                     <div className="space-y-3 mt-4 bg-black/20 p-3 rounded-lg border border-white/5">
                       <div className="flex justify-between items-baseline">
-                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Live Price</span>
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">
+                          Live {capitalStreaming && item.hasPriceData ? priceLabel : 'Price'}
+                        </span>
                         <span className="font-mono font-bold text-lg text-white">
-                          {capitalStreaming && item.hasPriceData ? `$${item.livePrice.toFixed(2)}` : '--'}
+                          {capitalStreaming && item.hasPriceData ? `$${entryPrice.toFixed(2)}` : '--'}
                         </span>
                       </div>
                       <div className="flex justify-between items-baseline">
@@ -404,8 +404,8 @@ export default function UnifiedCommandPage() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center pt-1 border-t border-white/5">
-                        <span className="text-[9px] font-black text-muted-foreground uppercase">{item.nearestLevel}</span>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black text-muted-foreground uppercase">{item.nearestLevel}</span>
                           {/* Plan Classification (what the analyst plan says) */}
                           {item.prox_alert.PlanNature && item.prox_alert.PlanNature !== 'N/A' && (
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${item.prox_alert.PlanNature === 'SUPPORT'
@@ -414,9 +414,11 @@ export default function UnifiedCommandPage() {
                                 ? 'text-rose-400 border-rose-500/30 bg-rose-500/10'
                                 : 'text-zinc-400 border-zinc-500/30 bg-zinc-500/10'
                               }`}>
-                              PLAN: {item.prox_alert.PlanNature}
+                              {item.prox_alert.PlanNature}
                             </span>
                           )}
+                        </div>
+                        <div className="flex items-center gap-3">
                           {/* Price-Relative Behavior (live price vs level) */}
                           {item.hasPriceData && (
                             <div className="flex items-center gap-1">
