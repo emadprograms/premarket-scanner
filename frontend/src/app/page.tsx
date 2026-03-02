@@ -352,8 +352,23 @@ export default function UnifiedCommandPage() {
                       }
                     }
 
+                    // Calculate directional distance to check for breaches
+                    // If distance is negative, the setup is breached and exit is immediate (only costing spread)
+                    let actualDistance = 0;
+                    if (isLongTrade) {
+                      actualDistance = entryPrice - bestPrice;  // Ask Entry - Stop Loss
+                    } else {
+                      actualDistance = bestPrice - entryPrice;  // Stop Loss - Bid Entry
+                    }
+
+                    if (actualDistance < 0) {
+                      actualDistance = 0; // Breached setup!
+                    }
+
                     const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;
-                    const distance = Math.max(bestDiff, spread);
+
+                    // Total Risk Distance is the greater between the setup's physical stop loss distance and the natural slippage
+                    const distance = Math.max(actualDistance, spread);
 
                     if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
                       const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
