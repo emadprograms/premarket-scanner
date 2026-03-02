@@ -236,6 +236,47 @@ export default function UnifiedCommandPage() {
         nature = nearestLevelValue !== null && nearestLevelValue < currentPrice ? 'SUPPORT' : 'RESISTANCE';
       }
 
+      const cardData = item.card ? (typeof item.card === 'string' ? JSON.parse(item.card) : item.card) : null;
+      const activePlan = cardData ? (nearestLevel === 'PLAN A' ? cardData.openingTradePlan : cardData.alternativePlan) : null;
+
+      let isBreached = false;
+      if (capitalStreaming && currentPrice && activePlan?.invalidation) {
+        let isLongTrade = nature === 'SUPPORT';
+        if (activePlan.planName) {
+          const pn = activePlan.planName.toLowerCase();
+          if (pn.includes('support') || pn.includes('long') || pn.includes('bull')) isLongTrade = true;
+          else if (pn.includes('resistance') || pn.includes('short') || pn.includes('bear')) isLongTrade = false;
+        }
+
+        const entryPrice = isLongTrade ? (currentAsk || currentPrice) : (currentBid || currentPrice);
+        const numMatches = activePlan.invalidation.match(/\d+\.?\d*/g);
+
+        if (numMatches && numMatches.length > 0) {
+          let bestPrice = parseFloat(numMatches[0]);
+          let bestDiff = Math.abs(entryPrice - bestPrice);
+
+          for (let m = 1; m < numMatches.length; m++) {
+            const p = parseFloat(numMatches[m]);
+            const d = Math.abs(entryPrice - p);
+            if (d < bestDiff) {
+              bestDiff = d;
+              bestPrice = p;
+            }
+          }
+
+          let actualDistance = 0;
+          if (isLongTrade) {
+            actualDistance = entryPrice - bestPrice;
+          } else {
+            actualDistance = bestPrice - entryPrice;
+          }
+
+          if (actualDistance <= 0) {
+            isBreached = true;
+          }
+        }
+      }
+
       return {
         ...item,
         livePrice: currentPrice,
@@ -246,16 +287,22 @@ export default function UnifiedCommandPage() {
         nearestLevelValue,
         nature,
         cardDate,
-        hasPriceData: currentPrice !== null
+        hasPriceData: currentPrice !== null,
+        isBreached
       };
     });
 
     // Sort by Proximity Score only when streaming
     if (capitalStreaming) {
       return data.sort((a, b) => {
-        // no-price tickers go to the end
+        // no-price tickers go to the absolute end
         if (a.hasPriceData && !b.hasPriceData) return -1;
         if (!a.hasPriceData && b.hasPriceData) return 1;
+
+        // breached tickers go almost to the end (above no-price)
+        if (a.isBreached && !b.isBreached) return 1;
+        if (!a.isBreached && b.isBreached) return -1;
+
         if (a.proximityScore !== b.proximityScore) return a.proximityScore - b.proximityScore;
         return a.nearestLevel === 'PLAN A' ? -1 : 1;
       });
@@ -352,18 +399,16 @@ export default function UnifiedCommandPage() {
                       }
                     }
 
-                    // Calculate directional distance to check for breaches
-                    // If distance is negative, the setup is breached and exit is immediate (only costing spread)
                     let actualDistance = 0;
                     if (isLongTrade) {
-                      actualDistance = entryPrice - bestPrice;  // Ask Entry - Stop Loss
+                      actualDistance = entryPrice - bestPrice;
                     } else {
-                      actualDistance = bestPrice - entryPrice;  // Stop Loss - Bid Entry
+                      actualDistance = bestPrice - entryPrice;
                     }
 
-                    if (actualDistance <= 0) {
-                      actualDistance = 0; // Breached setup!
+                    if (item.isBreached || actualDistance <= 0) {
                       cardClasses += " opacity-40 grayscale hover:opacity-100 transition-opacity";
+                      actualDistance = 0;
                     }
 
                     const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;
