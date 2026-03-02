@@ -228,14 +228,13 @@ def print_audit_table():
             else:
                 actual_distance = best_inv_price - entry_price
                 
-            if actual_distance < 0:
-                actual_distance = 0
-                
-            spread = abs(live_ask - live_bid)
-            distance = max(actual_distance, spread)
-            shares = math.floor(risk_dollars / distance) if distance > 0 else 0
-            
-            print(f"{ticker:<8} | {live_bid:<8.2f} | {live_ask:<8.2f} | {nature_str:<10} | {entry_price:<8.2f} | {best_inv_price:<8.2f} | {distance:<6.2f} | {risk_dollars:<5.0f} | {shares:<6} | {str(inv_text)[:30]}...")
+            if actual_distance <= 0:
+                print(f"{ticker:<8} | {live_bid:<8.2f} | {live_ask:<8.2f} | {nature_str:<10} | {entry_price:<8.2f} | {best_inv_price:<8.2f} | {'N/A':<6} | {risk_dollars:<5.0f} | {'N/A':<6} | {str(inv_text)[:30]}...")
+            else:
+                spread = abs(live_ask - live_bid)
+                distance = max(actual_distance, spread)
+                shares = math.floor(risk_dollars / distance) if distance > 0 else 0
+                print(f"{ticker:<8} | {live_bid:<8.2f} | {live_ask:<8.2f} | {nature_str:<10} | {entry_price:<8.2f} | {best_inv_price:<8.2f} | {distance:<6.2f} | {risk_dollars:<5.0f} | {shares:<6} | {str(inv_text)[:30]}...")
         else:
             print(f"{ticker:<8} | {live_bid:<8.2f} | {live_ask:<8.2f} | {nature_str:<10} | {entry_price:<8.2f} | {'N/A':<8} | {'N/A':<6} | {risk_dollars:<5.0f} | {'N/A':<6} | {str(inv_text)[:30]}...")
 

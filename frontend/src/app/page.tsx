@@ -409,16 +409,16 @@ export default function UnifiedCommandPage() {
                     if (item.isBreached || actualDistance <= 0) {
                       cardClasses += " opacity-40 grayscale hover:opacity-100 transition-opacity";
                       actualDistance = 0;
-                    }
+                    } else {
+                      const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;
 
-                    const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;
+                      // Total Risk Distance is the greater between the setup's physical stop loss distance and the natural slippage
+                      const distance = Math.max(actualDistance, spread);
 
-                    // Total Risk Distance is the greater between the setup's physical stop loss distance and the natural slippage
-                    const distance = Math.max(actualDistance, spread);
-
-                    if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
-                      const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
-                      positionSize = Math.floor(riskAmount / distance);
+                      if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
+                        const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
+                        positionSize = Math.floor(riskAmount / distance);
+                      }
                     }
                   }
                 }
@@ -511,12 +511,17 @@ export default function UnifiedCommandPage() {
                         <Calendar className="w-3 h-3" />
                         <span className="font-mono">Card: {item.cardDate}</span>
                       </div>
-                      {positionSize !== null && (
+                      {item.isBreached ? (
+                        <div className="flex items-center gap-1.5 bg-zinc-500/10 px-2 py-0.5 rounded border border-zinc-500/20">
+                          <span className="font-black text-zinc-500/70 uppercase tracking-widest">Size:</span>
+                          <span className="font-mono font-bold text-zinc-400">N/A</span>
+                        </div>
+                      ) : positionSize !== null ? (
                         <div className="flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
                           <span className="font-black text-primary/70 uppercase tracking-widest">Size:</span>
                           <span className="font-mono font-bold text-primary">{positionSize} shares</span>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   </Card>
                 </motion.div>
