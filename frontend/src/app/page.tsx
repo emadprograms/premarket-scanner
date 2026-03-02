@@ -326,7 +326,7 @@ export default function UnifiedCommandPage() {
                 : (item.liveBid || item.livePrice);
               const priceLabel = isLongTrade ? 'Ask' : 'Bid';
 
-              const cardClasses = !item.hasPriceData
+              let cardClasses = !item.hasPriceData
                 ? "border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
                 : isSupport
                   ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
@@ -361,8 +361,9 @@ export default function UnifiedCommandPage() {
                       actualDistance = bestPrice - entryPrice;  // Stop Loss - Bid Entry
                     }
 
-                    if (actualDistance < 0) {
+                    if (actualDistance <= 0) {
                       actualDistance = 0; // Breached setup!
+                      cardClasses += " opacity-40 grayscale hover:opacity-100 transition-opacity";
                     }
 
                     const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;

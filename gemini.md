@@ -12,7 +12,9 @@
 
 * **Position Sizing with Spread Constraint (Risk Clamp):**
   * Updated position size equation in both `page.tsx` and `audit_size.py` to handle slippage edge cases inherently found in dynamic environments.
-  * The risk distance is now strictly clamped to `max(invalidation_distance, spread)`, ensuring that if a stop-loss is placed inside the spread (or triggers immediately), the risk shares natively limit to the maximum bid-ask slippage. This directly prevents over-leveraged math (such as suggesting extremely high share volumes if the invalidation distance is less than a few cents).
+  * Extracted directional distance logic for Longs (Ask - Invalidation) and Shorts (Invalidation - Bid).
+  * **Breached Setup UI Support:** If the directional distance drops below `0` (indicating the live entry has broken the stop-loss plan), the dashboard card now dynamically grayscales itself (`opacity-40 grayscale`) to visibly alert the user that the setup is invalid and requires updating. 
+  * The risk distance is now strictly clamped to `max(actualDistance, spread)`, ensuring that if a stop-loss is placed inside the spread (or triggers immediately as a breached setup), the risk shares natively limit to the maximum bid-ask slippage. This directly prevents over-leveraged math (such as suggesting extremely high share volumes if the invalidation distance is technically negative or mere cents).
 
 * **Premium UI Polish:**
   * Replaced native browser number spinners (scrollbars) with custom Framer/Lucide modern chevron up/down steppers for Capital and Risk inputs.
