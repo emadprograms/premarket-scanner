@@ -424,7 +424,7 @@ export default function UnifiedCommandPage() {
                             <div className="flex items-center gap-1">
                               {isSupport ? <TrendingUp className="w-3 h-3 text-emerald-500" /> : <TrendingDown className="w-3 h-3 text-rose-500" />}
                               <span className={`text-[9px] font-bold ${isSupport ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                {isSupport ? '↑ ABOVE' : '↓ BELOW'}
+                                {isSupport ? 'ABOVE' : 'BELOW'}
                               </span>
                             </div>
                           )}
