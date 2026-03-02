@@ -9,7 +9,10 @@ import {
     History,
     ShieldAlert,
     Wifi,
-    WifiOff
+    WifiOff,
+    HelpCircle,
+    ChevronUp,
+    ChevronDown
 } from 'lucide-react';
 import { useMission } from '@/lib/context';
 
@@ -76,6 +79,16 @@ export default function Shell({ children }: ShellProps) {
 
     const marketStatus = getMarketStatus();
 
+    const adjustCapital = (amount: number) => {
+        const current = settings.accountAmount || 0;
+        updateSettings({ accountAmount: Math.max(0, current + amount) });
+    };
+
+    const adjustRisk = (amount: number) => {
+        const current = settings.riskPercentage || 0;
+        updateSettings({ riskPercentage: Math.max(0, Number((current + amount).toFixed(1))) });
+    };
+
     return (
         <div className="flex h-screen bg-background overflow-hidden font-sans text-[13px]">
             {/* Navigation Sidebar - Ultra Slim */}
@@ -133,33 +146,102 @@ export default function Shell({ children }: ShellProps) {
                                     {navItems.find(n => n.id === settings.workstation)?.label || 'PREMARKET'}
                                 </span>
                             </div>
+
+                            {settings.workstation === 'Scanner' && (
+                                <div className="flex items-center gap-6 border-l border-border pl-4">
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1 group relative">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest cursor-default">Capital</span>
+                                            <HelpCircle className="w-3 h-3 text-muted-foreground/50 hover:text-primary transition-colors cursor-help" />
+                                            <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-zinc-900 border border-white/10 rounded-lg text-[10px] leading-relaxed text-zinc-300 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 z-50 shadow-xl">
+                                                <div className="font-black text-white mb-1 uppercase tracking-widest">Base Capital</div>
+                                                Your total trading account size. Used to calculate exactly how many shares you should buy based on your selected Risk %.
+                                            </div>
+                                        </div>
+                                        <div className="relative flex items-center group/input rounded bg-muted/30 border border-border focus-within:border-primary/50 transition-colors">
+                                            <span className="pl-2 pr-1 text-[10px] text-muted-foreground font-mono">$</span>
+                                            <input
+                                                type="number"
+                                                value={settings.accountAmount || 10000}
+                                                onChange={(e) => updateSettings({ accountAmount: Number(e.target.value) })}
+                                                className="w-16 bg-transparent py-0.5 text-[11px] font-mono focus:outline-none transition-colors"
+                                            />
+                                            <div className="flex flex-col border-l border-border w-4 justify-center items-center">
+                                                <button onClick={() => adjustCapital(500)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 border-b border-border transition-colors">
+                                                    <ChevronUp className="w-2.5 h-2.5" />
+                                                </button>
+                                                <button onClick={() => adjustCapital(-500)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 transition-colors">
+                                                    <ChevronDown className="w-2.5 h-2.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1 group relative">
+                                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest cursor-default">Risk</span>
+                                            <HelpCircle className="w-3 h-3 text-muted-foreground/50 hover:text-primary transition-colors cursor-help" />
+                                            <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-zinc-900 border border-white/10 rounded-lg text-[10px] leading-relaxed text-zinc-300 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 z-50 shadow-xl">
+                                                <div className="font-black text-white mb-1 uppercase tracking-widest">Risk Tolerance</div>
+                                                The percentage of your total capital you are willing to lose if the trade invalidates (stops out). Common values are 0.5% - 2.0%.
+                                            </div>
+                                        </div>
+                                        <div className="relative flex items-center group/input rounded bg-muted/30 border border-border focus-within:border-primary/50 transition-colors">
+                                            <input
+                                                type="number"
+                                                step="0.1"
+                                                value={settings.riskPercentage || 1}
+                                                onChange={(e) => updateSettings({ riskPercentage: Number(e.target.value) })}
+                                                className="w-10 bg-transparent py-0.5 pl-2 text-[11px] font-mono focus:outline-none transition-colors"
+                                            />
+                                            <span className="pr-1 text-[10px] text-muted-foreground font-mono">%</span>
+                                            <div className="flex flex-col border-l border-border w-4 justify-center items-center">
+                                                <button onClick={() => adjustRisk(0.1)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 border-b border-border transition-colors">
+                                                    <ChevronUp className="w-2.5 h-2.5" />
+                                                </button>
+                                                <button onClick={() => adjustRisk(-0.1)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 transition-colors">
+                                                    <ChevronDown className="w-2.5 h-2.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex items-center gap-3">
                             {/* Connect / Disconnect Capital.com Button — only on Scanner */}
                             {settings.workstation === 'Scanner' && (
-                                <button
-                                    onClick={toggleCapitalStream}
-                                    className={`group inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border transition-all duration-300 ${capitalStreaming
-                                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
-                                        : 'bg-violet-500/10 border-violet-500/30 text-violet-400 hover:bg-violet-500/20'
-                                        }`}
-                                >
-                                    {capitalStreaming ? (
-                                        <>
-                                            <WifiOff className="w-3 h-3" />
-                                            Disconnect
-                                        </>
-                                    ) : (
-                                        <>
-                                            <div className="relative flex items-center gap-1">
-                                                <Wifi className="w-3 h-3" />
-                                                <div className="absolute inset-0 bg-violet-500/30 blur-md rounded-full scale-150 animate-pulse" />
-                                            </div>
-                                            Connect
-                                        </>
-                                    )}
-                                </button>
+                                <div className="flex items-center gap-1 group relative">
+                                    <button
+                                        onClick={toggleCapitalStream}
+                                        className={`group/btn inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border transition-all duration-300 ${capitalStreaming
+                                            ? 'bg-rose-500/10 border-rose-500/30 text-rose-400 hover:bg-rose-500/20'
+                                            : 'bg-violet-500/10 border-violet-500/30 text-violet-400 hover:bg-violet-500/20'
+                                            }`}
+                                    >
+                                        {capitalStreaming ? (
+                                            <>
+                                                <WifiOff className="w-3 h-3" />
+                                                Disconnect
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="relative flex items-center gap-1">
+                                                    <Wifi className="w-3 h-3" />
+                                                    <div className="absolute inset-0 bg-violet-500/30 blur-md rounded-full scale-150 animate-pulse" />
+                                                </div>
+                                                Connect
+                                            </>
+                                        )}
+                                    </button>
+                                    <HelpCircle className="w-3 h-3 text-muted-foreground/50 hover:text-primary transition-colors cursor-help" />
+                                    <div className="absolute top-full mt-2 right-0 w-64 p-2.5 bg-zinc-900 border border-white/10 rounded-lg text-[10px] leading-relaxed text-zinc-300 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 z-50 shadow-xl">
+                                        <div className="font-black text-white mb-1 uppercase tracking-widest flex items-center gap-1.5">
+                                            Capital.com Broker Stream <Wifi className="w-3 h-3 text-violet-400" />
+                                        </div>
+                                        Connect via WebSocket to Capital.com to stream live market prices directly into the scanner. This enables proximity ranking and live position size updates for all active cards.
+                                    </div>
+                                </div>
                             )}
 
                             <div className="flex items-center gap-2">

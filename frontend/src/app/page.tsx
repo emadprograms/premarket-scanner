@@ -300,6 +300,25 @@ export default function UnifiedCommandPage() {
                   ? "border-l-emerald-500 bg-emerald-500/8 hover:bg-emerald-500/12"
                   : "border-l-rose-500 bg-rose-500/8 hover:bg-rose-500/12";
 
+              // Calculate Position Size
+              let positionSize: number | null = null;
+              if (item.hasPriceData && item.card) {
+                const cardData = typeof item.card === 'string' ? JSON.parse(item.card) : item.card;
+                const activePlan = item.nearestLevel === 'PLAN A' ? cardData?.openingTradePlan : cardData?.alternativePlan;
+
+                if (activePlan?.invalidation) {
+                  const invMatch = activePlan.invalidation.match(/\d+\.?\d*/);
+                  if (invMatch) {
+                    const invPrice = parseFloat(invMatch[0]);
+                    const distance = Math.abs(item.livePrice - invPrice);
+                    if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
+                      const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
+                      positionSize = Math.floor(riskAmount / distance);
+                    }
+                  }
+                }
+              }
+
               return (
                 <motion.div
                   key={item.ticker}
@@ -377,10 +396,18 @@ export default function UnifiedCommandPage() {
                       </div>
                     </div>
 
-                    {/* Card Date Indicator */}
-                    <div className="mt-3 flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
-                      <Calendar className="w-3 h-3" />
-                      <span className="font-mono">Card: {item.cardDate}</span>
+                    {/* Card Date Indicator & Position Size */}
+                    <div className="mt-3 flex items-center justify-between text-[9px] text-muted-foreground/60">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3 h-3" />
+                        <span className="font-mono">Card: {item.cardDate}</span>
+                      </div>
+                      {positionSize !== null && (
+                        <div className="flex items-center gap-1.5 bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
+                          <span className="font-black text-primary/70 uppercase tracking-widest">Size:</span>
+                          <span className="font-mono font-bold text-primary">{positionSize} shares</span>
+                        </div>
+                      )}
                     </div>
                   </Card>
                 </motion.div>

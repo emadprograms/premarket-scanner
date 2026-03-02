@@ -17,6 +17,8 @@ interface MissionSettings {
     confluence_mode: 'Strict' | 'Flexible';
     force_economy_refresh: boolean;
     workstation: 'Scanner' | 'Archive';
+    accountAmount: number;
+    riskPercentage: number;
 }
 
 interface SystemStatus {
@@ -48,7 +50,9 @@ const defaultSettings: MissionSettings = {
     use_full_context: false,
     confluence_mode: "Strict",
     force_economy_refresh: false,
-    workstation: 'Scanner'
+    workstation: 'Scanner',
+    accountAmount: 10000,
+    riskPercentage: 1.0
 };
 
 const MissionContext = createContext<MissionContextType | undefined>(undefined);
