@@ -352,7 +352,9 @@ export default function UnifiedCommandPage() {
                       }
                     }
 
-                    const distance = bestDiff;
+                    const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;
+                    const distance = Math.max(bestDiff, spread);
+
                     if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
                       const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
                       positionSize = Math.floor(riskAmount / distance);
