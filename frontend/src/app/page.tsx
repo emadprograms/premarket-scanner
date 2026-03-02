@@ -24,7 +24,7 @@ import ChartPlanView from '@/components/layout/ChartPlanView';
 const LOADING_STEPS = [
   'Connecting to database',
   'Fetching watchlist',
-  'Fetching ATR (Yahoo Finance)',
+  'Pulling ATR data..',
   'Extracting plan levels',
   'Computing proximity rankings',
   'Preparing dashboard',
