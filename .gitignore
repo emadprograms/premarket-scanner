@@ -8,3 +8,4 @@ secrets.toml
 .venv
 data/
 .env
+local_turso.db

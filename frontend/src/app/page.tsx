@@ -308,10 +308,23 @@ export default function UnifiedCommandPage() {
               const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
               const isSupport = item.nature === 'SUPPORT';
 
-              const entryPrice = isSupport
+              const cardData = item.card ? (typeof item.card === 'string' ? JSON.parse(item.card) : item.card) : null;
+              const activePlan = cardData ? (item.nearestLevel === 'PLAN A' ? cardData.openingTradePlan : cardData.alternativePlan) : null;
+
+              let isLongTrade = isSupport;
+              if (activePlan?.planName) {
+                const pn = activePlan.planName.toLowerCase();
+                if (pn.includes('support') || pn.includes('long') || pn.includes('bull')) {
+                  isLongTrade = true;
+                } else if (pn.includes('resistance') || pn.includes('short') || pn.includes('bear')) {
+                  isLongTrade = false;
+                }
+              }
+
+              const entryPrice = isLongTrade
                 ? (item.liveAsk || item.livePrice)
                 : (item.liveBid || item.livePrice);
-              const priceLabel = isSupport ? 'Ask' : 'Bid';
+              const priceLabel = isLongTrade ? 'Ask' : 'Bid';
 
               const cardClasses = !item.hasPriceData
                 ? "border-l-zinc-500 bg-zinc-500/5 hover:bg-zinc-500/10"
@@ -321,11 +334,8 @@ export default function UnifiedCommandPage() {
 
               // Calculate Position Size
               let positionSize: number | null = null;
-              if (item.hasPriceData && item.card) {
-                const cardData = typeof item.card === 'string' ? JSON.parse(item.card) : item.card;
-                const activePlan = item.nearestLevel === 'PLAN A' ? cardData?.openingTradePlan : cardData?.alternativePlan;
-
-                if (activePlan?.invalidation) {
+              if (item.hasPriceData && activePlan) {
+                if (activePlan.invalidation) {
                   const numMatches = activePlan.invalidation.match(/\d+\.?\d*/g);
                   if (numMatches && numMatches.length > 0) {
                     // Find the number in the text that is closest to the live price.
