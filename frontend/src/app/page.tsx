@@ -87,6 +87,8 @@ export default function UnifiedCommandPage() {
 
   // Real-time Price State
   const priceMapRef = useRef<Record<string, number>>({});
+  const askMapRef = useRef<Record<string, number>>({});
+  const bidMapRef = useRef<Record<string, number>>({});
   const [lastSortTime, setLastSortTime] = useState(Date.now());
 
   // 1. Auto-load baseline data on mount
@@ -142,8 +144,14 @@ export default function UnifiedCommandPage() {
   useEffect(() => {
     if (!capitalStreaming) return;
 
-    const handler = (update: { ticker: string; price: number }) => {
+    const handler = (update: { ticker: string; price: number, bid?: number, ask?: number, timestamp: string }) => {
       priceMapRef.current[update.ticker] = update.price;
+      if (update.ask) {
+        askMapRef.current[update.ticker] = update.ask;
+      }
+      if (update.bid) {
+        bidMapRef.current[update.ticker] = update.bid;
+      }
       // Trigger a re-render so the useMemo picks up the new price
       setLastSortTime(Date.now());
     };
@@ -196,8 +204,12 @@ export default function UnifiedCommandPage() {
         : null;
 
       let currentPrice: number | null = null;
+      let currentAsk: number | null = null;
+      let currentBid: number | null = null;
       if (capitalStreaming) {
         currentPrice = priceMapRef.current[ticker] || backendPrice;
+        currentAsk = askMapRef.current[ticker] || null;
+        currentBid = bidMapRef.current[ticker] || null;
       } else {
         currentPrice = backendPrice;
       }
@@ -227,6 +239,8 @@ export default function UnifiedCommandPage() {
       return {
         ...item,
         livePrice: currentPrice,
+        liveAsk: currentAsk,
+        liveBid: currentBid,
         proximityScore,
         nearestLevel,
         nearestLevelValue,
@@ -307,10 +321,30 @@ export default function UnifiedCommandPage() {
                 const activePlan = item.nearestLevel === 'PLAN A' ? cardData?.openingTradePlan : cardData?.alternativePlan;
 
                 if (activePlan?.invalidation) {
-                  const invMatch = activePlan.invalidation.match(/\d+\.?\d*/);
-                  if (invMatch) {
-                    const invPrice = parseFloat(invMatch[0]);
-                    const distance = Math.abs(item.livePrice - invPrice);
+                  const numMatches = activePlan.invalidation.match(/\d+\.?\d*/g);
+                  if (numMatches && numMatches.length > 0) {
+                    // Find the number in the text that is closest to the live price.
+                    // This prevents extracting bullet points like "1." or other stray numbers as the stop loss.
+                    // Entry price based on trade direction:
+                    // Support (Long) -> buy at Ask
+                    // Resistance (Short) -> sell at Bid
+                    const entryPrice = isSupport
+                      ? (item.liveAsk || item.livePrice)
+                      : (item.liveBid || item.livePrice);
+
+                    let bestPrice = parseFloat(numMatches[0]);
+                    let bestDiff = Math.abs(entryPrice - bestPrice);
+
+                    for (let m = 1; m < numMatches.length; m++) {
+                      const p = parseFloat(numMatches[m]);
+                      const d = Math.abs(entryPrice - p);
+                      if (d < bestDiff) {
+                        bestDiff = d;
+                        bestPrice = p;
+                      }
+                    }
+
+                    const distance = bestDiff;
                     if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
                       const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
                       positionSize = Math.floor(riskAmount / distance);

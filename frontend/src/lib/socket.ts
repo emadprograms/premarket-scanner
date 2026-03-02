@@ -1,5 +1,5 @@
 type LogHandler = (log: any) => void;
-type PriceHandler = (update: { ticker: string, price: number, timestamp: string }) => void;
+type PriceHandler = (update: { ticker: string, price: number, bid?: number, ask?: number, timestamp: string }) => void;
 
 class SocketService {
     private socket: WebSocket | null = null;
