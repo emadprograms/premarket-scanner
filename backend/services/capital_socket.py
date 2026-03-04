@@ -51,15 +51,24 @@ class CapitalWebSocketService:
 
     def set_tickers(self, tickers: List[str]):
         """Update the set of tickers to monitor."""
-        self.tickers = set(tickers)
-        self._pending_tickers = set(tickers)  # Always queue for subscription
+        new_tickers = set(tickers)
+        if new_tickers == self.tickers:
+            return  # No change
+        self.tickers = new_tickers
+        self._pending_tickers = new_tickers.copy()
         if self.running and self.ws:
             asyncio.create_task(self._sync_subscriptions())
         else:
-            log.info(f"Capital WS: Queued {len(tickers)} tickers (WS not ready yet)")
+            log.info(f"Capital WS: Queued {len(tickers)} tickers (WS will connect when ready)")
 
     async def _run_loop(self):
         while self.running:
+            # Don't connect until we actually have tickers to subscribe to
+            if not self.tickers and not self._pending_tickers:
+                log.debug("Capital WS: No tickers set. Waiting for subscription request...")
+                await asyncio.sleep(5)
+                continue
+
             try:
                 log.info("Capital WS: Authenticating...")
                 self.cst, self.xst = create_capital_session_v2()
@@ -79,26 +88,37 @@ class CapitalWebSocketService:
 
                     # Listen for updates
                     while self.running:
-                        message = await asyncio.wait_for(self.ws.recv(), timeout=30)
-                        data = json.loads(message)
-                        await self._handle_message(data)
+                        try:
+                            message = await asyncio.wait_for(self.ws.recv(), timeout=30)
+                            data = json.loads(message)
+                            await self._handle_message(data)
+                        except asyncio.TimeoutError:
+                            # No data in 30s — send application-level ping with auth tokens
+                            if not self.subscriptions:
+                                log.info("Capital WS: No active subscriptions. Idling...")
+                                continue
+                            log.warning("Capital WS: No data received in 30s. Sending app-level ping...")
+                            try:
+                                await self.ws.send(json.dumps({
+                                    "destination": "ping",
+                                    "correlationId": "PING",
+                                    "cst": self.cst,
+                                    "securityToken": self.xst,
+                                }))
+                                # Wait briefly for pong response
+                                await asyncio.wait_for(self.ws.recv(), timeout=10)
+                                log.info("Capital WS: Ping OK.")
+                            except Exception:
+                                log.warning("Capital WS: Ping failed. Reconnecting...")
+                                break  # Exit inner loop to reconnect
 
-            except asyncio.TimeoutError:
-                log.warning("Capital WS: No data received in 30s. Sending ping...")
-                # Connection may be stale — force reconnect
-                if self.ws:
-                    try:
-                        await self.ws.ping()
-                    except Exception:
-                        log.warning("Capital WS: Ping failed. Reconnecting...")
-                        self.ws = None
-                        self.subscriptions.clear()
-                        await asyncio.sleep(2)
             except Exception as e:
                 log.error(f"Capital WS Error: {e}. Reconnecting in 5s...")
+            finally:
                 self.ws = None
                 self.subscriptions.clear()
-                await asyncio.sleep(5)
+                if self.running:
+                    await asyncio.sleep(5)
 
     async def _sync_subscriptions(self):
         if not self.ws:
@@ -118,6 +138,7 @@ class CapitalWebSocketService:
                 try:
                     await self.ws.send(json.dumps({
                         "destination": "marketData.unsubscribe",
+                        "correlationId": f"unsub_{epic}",
                         "cst": self.cst,
                         "securityToken": self.xst,
                         "payload": {"epics": [epic]}
@@ -132,6 +153,7 @@ class CapitalWebSocketService:
                 try:
                     await self.ws.send(json.dumps({
                         "destination": "marketData.subscribe",
+                        "correlationId": "sub_1",
                         "cst": self.cst,
                         "securityToken": self.xst,
                         "payload": {"epics": list(to_add)}
