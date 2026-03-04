@@ -2,17 +2,38 @@ import axios from 'axios';
 
 // Debug API Base URL selection - Sanitize inputs (remove quotes/trailing spaces that cause fatal URL parsing errors)
 const getBaseUrl = () => {
+    // 1. Explicit env var always wins (set this in Vercel project settings)
     if (process.env.NEXT_PUBLIC_API_URL) {
-        return process.env.NEXT_PUBLIC_API_URL.trim().replace(/['"]+/g, '');
+        return process.env.NEXT_PUBLIC_API_URL.trim().replace(/['"]+/g, '').replace(/\/+$/, '');
     }
-    // Fallback logic for browser environments
+
+    // 2. Fallback logic for browser environments
     if (typeof window !== 'undefined') {
-        // If we are on localhost, use 127.0.0.1 to avoid IPv6/localhost ambiguity on some systems
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            return `${window.location.protocol}//127.0.0.1:8000`;
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+
+        // Local development
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return `${protocol}//127.0.0.1:8000`;
         }
-        return `${window.location.protocol}//${window.location.hostname}:8000`;
+
+        // Codespaces: rewrite port in hostname
+        if (hostname.includes('.app.github.dev')) {
+            const backendHost = hostname.replace(/-\d+\./, '-8000.');
+            return `${protocol}//${backendHost}`;
+        }
+
+        // Production (Vercel, custom domain, etc.): NEXT_PUBLIC_API_URL MUST be set.
+        // Don't guess — appending :8000 to a Vercel domain will never work.
+        console.error(
+            '[API] NEXT_PUBLIC_API_URL is not set. The frontend cannot reach the backend. ' +
+            'Set this environment variable in your Vercel project settings to your ngrok domain ' +
+            '(e.g., https://your-domain.ngrok-free.app).'
+        );
+        // Return a placeholder that will fail fast with a clear error
+        return `${protocol}//${hostname}`;
     }
+
     return 'http://127.0.0.1:8000';
 };
 

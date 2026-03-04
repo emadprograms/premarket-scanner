@@ -45,6 +45,11 @@ jobs:
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
         run: |
           DURATION="${{ github.event.inputs.duration }}"
+          BACKEND_URL="https://${{ secrets.NGROK_DOMAIN }}"
           echo "🚀 Starting backend for $DURATION..."
-          echo "🌐 Backend accessible at: https://${{ secrets.NGROK_DOMAIN }}"
+          echo "🌐 Backend accessible at: $BACKEND_URL"
+          echo ""
+          echo "📋 Set this in Vercel Environment Variables:"
+          echo "   NEXT_PUBLIC_API_URL = $BACKEND_URL"
+          echo ""
           timeout $DURATION python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 || echo "⏹️ Backend stopped after $DURATION."
