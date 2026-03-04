@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from backend.services.context import context
 from backend.engine.database import fetch_watchlist
+import asyncio
 import os
 import json
 import time
@@ -34,19 +35,19 @@ async def get_system_status():
     except Exception:
         pass
     
-    # 2. Check Capital.com Connectivity
+    # 2. Check Capital.com Connectivity (run in thread to avoid blocking event loop)
     capital_connected = False
     try:
         if create_capital_session_v2:
-            cst, xst = create_capital_session_v2()
+            cst, xst = await asyncio.to_thread(create_capital_session_v2)
             capital_connected = (cst is not None and xst is not None)
     except Exception:
         pass
     
-    # 3. Check DB
+    # 3. Check DB (run in thread to avoid blocking event loop)
     db_connected = False
     try:
-        context.get_db().execute("SELECT 1")
+        await asyncio.to_thread(context.get_db().execute, "SELECT 1")
         db_connected = True
     except Exception:
         pass

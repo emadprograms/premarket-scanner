@@ -62,6 +62,9 @@ class CapitalWebSocketService:
             log.info(f"Capital WS: Queued {len(tickers)} tickers (WS will connect when ready)")
 
     async def _run_loop(self):
+        reconnect_delay = 5  # Start at 5s, increase on repeated failures
+        max_reconnect_delay = 60
+
         while self.running:
             # Don't connect until we actually have tickers to subscribe to
             if not self.tickers and not self._pending_tickers:
@@ -71,7 +74,8 @@ class CapitalWebSocketService:
 
             try:
                 log.info("Capital WS: Authenticating...")
-                self.cst, self.xst = create_capital_session_v2()
+                # Run blocking auth in thread pool to avoid freezing the event loop
+                self.cst, self.xst = await asyncio.to_thread(create_capital_session_v2)
                 if not self.cst or not self.xst:
                     log.error("Capital WS: Auth failed. Retrying in 10s...")
                     await asyncio.sleep(10)
@@ -81,6 +85,7 @@ class CapitalWebSocketService:
                 async with websockets.connect(self.URL) as websocket:
                     self.ws = websocket
                     log.info("✅ Capital WS: Connected.")
+                    reconnect_delay = 5  # Reset backoff on successful connection
                     
                     # Subscribe to any pending tickers
                     if self._pending_tickers or self.tickers:
@@ -109,16 +114,20 @@ class CapitalWebSocketService:
                                 await asyncio.wait_for(self.ws.recv(), timeout=10)
                                 log.info("Capital WS: Ping OK.")
                             except Exception:
-                                log.warning("Capital WS: Ping failed. Reconnecting...")
+                                log.warning("Capital WS: Ping failed. Clearing stale session, reconnecting...")
+                                # Force token refresh on next reconnect
+                                from backend.engine.capital_api import clear_capital_session
+                                clear_capital_session()
                                 break  # Exit inner loop to reconnect
 
             except Exception as e:
-                log.error(f"Capital WS Error: {e}. Reconnecting in 5s...")
+                log.error(f"Capital WS Error: {e}. Reconnecting in {reconnect_delay}s...")
             finally:
                 self.ws = None
                 self.subscriptions.clear()
                 if self.running:
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(reconnect_delay)
+                    reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)  # Exponential backoff
 
     async def _sync_subscriptions(self):
         if not self.ws:

@@ -17,14 +17,22 @@ def get_retry_session():
 
 # Manual Singleton Cache for FastAPI/Non-Streamlit environments
 _CAPITAL_SESSION_CACHE = {"cst": None, "xst": None, "expiry": None}
+_SESSION_TTL_SECONDS = 8 * 60  # Refresh tokens every 8 minutes (Capital.com sessions last ~10 min)
 
 def create_capital_session_v2():
     """Creates a Capital.com session and caches tokens using Infisical."""
     global _CAPITAL_SESSION_CACHE
     
-    # 1. Return cached session if valid (simple 10-min dummy expiry for now)
-    if _CAPITAL_SESSION_CACHE["cst"] and _CAPITAL_SESSION_CACHE["xst"]:
+    import time as _time
+    
+    # 1. Return cached session if valid and not expired
+    if (_CAPITAL_SESSION_CACHE["cst"] and _CAPITAL_SESSION_CACHE["xst"]
+            and _CAPITAL_SESSION_CACHE["expiry"]
+            and _time.time() < _CAPITAL_SESSION_CACHE["expiry"]):
         return _CAPITAL_SESSION_CACHE["cst"], _CAPITAL_SESSION_CACHE["xst"]
+    
+    # Cache miss or expired — clear stale tokens
+    _CAPITAL_SESSION_CACHE = {"cst": None, "xst": None, "expiry": None}
 
     print("📡 Infisical: Fetching Capital.com credentials...")
     mgr = InfisicalManager()
@@ -59,6 +67,7 @@ def create_capital_session_v2():
             print("✅ Capital: Session Established.")
             _CAPITAL_SESSION_CACHE["cst"] = cst
             _CAPITAL_SESSION_CACHE["xst"] = xst
+            _CAPITAL_SESSION_CACHE["expiry"] = _time.time() + _SESSION_TTL_SECONDS
             return cst, xst
         else:
             print("❌ Capital: Headers missing CST or X-SECURITY-TOKEN")
