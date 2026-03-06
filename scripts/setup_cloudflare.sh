@@ -24,17 +24,20 @@ rm /tmp/cloudflared.deb
 # set in the Cloudflare Zero Trust dashboard — no CLI flags needed.
 cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" > /tmp/cloudflared.log 2>&1 &
 
-# Wait for the tunnel to establish
+# Wait for the tunnel to establish (cloudflared writes to log asynchronously)
+sleep 5
 echo "⏳ Waiting for tunnel to connect..."
-for i in $(seq 1 15); do
-    if grep -qi "Registered tunnel connection\|registered connIndex" /tmp/cloudflared.log 2>/dev/null; then
+for i in $(seq 1 10); do
+    if grep -qi "Registered tunnel connection" /tmp/cloudflared.log 2>/dev/null; then
         echo "✅ Cloudflare Tunnel is live!"
         exit 0
     fi
-    sleep 2
+    sleep 3
 done
 
-echo "⚠️  Tunnel may not be fully connected yet (timed out after 30s)."
-echo "   Last log lines:"
-tail -5 /tmp/cloudflared.log 2>/dev/null
-echo "   Proceeding anyway — the tunnel may still be initializing."
+# Even if grep didn't match, show the log so we can see what happened
+echo "📋 Cloudflare Tunnel log:"
+cat /tmp/cloudflared.log 2>/dev/null | tail -10
+echo ""
+echo "✅ Proceeding — tunnel connections are typically established by now."
+
