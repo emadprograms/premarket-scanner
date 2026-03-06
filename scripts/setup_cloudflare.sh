@@ -27,7 +27,7 @@ cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" > /tmp
 # Wait for the tunnel to establish
 echo "⏳ Waiting for tunnel to connect..."
 for i in $(seq 1 15); do
-    if grep -q "Connection.*registered" /tmp/cloudflared.log 2>/dev/null; then
+    if grep -qi "Registered tunnel connection\|registered connIndex" /tmp/cloudflared.log 2>/dev/null; then
         echo "✅ Cloudflare Tunnel is live!"
         exit 0
     fi
