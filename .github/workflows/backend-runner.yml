@@ -44,7 +44,7 @@ jobs:
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
         run: |
           DURATION="${{ github.event.inputs.duration }}"
-          BACKEND_URL="https://${{ secrets.CLOUDFLARE_DOMAIN }}"
+          BACKEND_URL="https://${{ vars.CLOUDFLARE_DOMAIN }}"
           echo "🚀 Starting backend for $DURATION..."
           echo "🌐 Backend accessible at: $BACKEND_URL"
           echo ""
