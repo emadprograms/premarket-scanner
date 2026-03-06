@@ -6,13 +6,13 @@ from datetime import datetime
 
 app = FastAPI(title="Premarket Scanner API", version="1.0.0")
 
-# CORS Configuration — allow Vercel frontend + local dev + ngrok
+# CORS Configuration — allow Vercel frontend + local dev + Cloudflare Tunnel
 ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
 
-# Dynamically add Vercel/ngrok origins from env vars if available
+# Dynamically add Vercel/Cloudflare origins from env vars if available
 import os as _os
 _vercel_url = _os.environ.get("FRONTEND_URL", "")
 if _vercel_url:
@@ -20,9 +20,9 @@ if _vercel_url:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permissive for ngrok/dynamic URLs; tighten with ALLOWED_ORIGINS if needed
+    allow_origins=["*"],  # Permissive for Cloudflare Tunnel/dynamic URLs; tighten with ALLOWED_ORIGINS if needed
     allow_methods=["*"],
-    allow_headers=["*", "ngrok-skip-browser-warning"],
+    allow_headers=["*"],
     allow_credentials=False,  # Must be False when allow_origins=["*"]
     expose_headers=["*"],
 )

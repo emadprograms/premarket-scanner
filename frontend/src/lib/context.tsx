@@ -100,8 +100,7 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
             const next = !prev;
             if (next) {
                 // Connect WebSocket
-                let wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
-                if (API_BASE_URL.includes('ngrok')) wsProtocol = 'wss';
+                const wsProtocol = API_BASE_URL.startsWith('https') ? 'wss' : 'ws';
                 const wsUrl = `${wsProtocol}://${API_BASE_URL.replace(/^https?:\/\//, '')}/ws/logs`;
                 socketService.connect(wsUrl);
             } else {

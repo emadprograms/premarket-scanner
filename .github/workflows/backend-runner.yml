@@ -29,13 +29,12 @@ jobs:
       - name: Run Tests
         run: python -m pytest tests/ -v --tb=short
 
-      - name: Setup Ngrok Tunnel
+      - name: Setup Cloudflare Tunnel
         env:
-          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-          NGROK_DOMAIN: ${{ secrets.NGROK_DOMAIN }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
         run: |
-          chmod +x scripts/setup_tunnel.sh
-          ./scripts/setup_tunnel.sh
+          chmod +x scripts/setup_cloudflare.sh
+          ./scripts/setup_cloudflare.sh
           sleep 3
 
       - name: Start Backend
@@ -45,7 +44,7 @@ jobs:
           INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
         run: |
           DURATION="${{ github.event.inputs.duration }}"
-          BACKEND_URL="https://${{ secrets.NGROK_DOMAIN }}"
+          BACKEND_URL="https://${{ secrets.CLOUDFLARE_DOMAIN }}"
           echo "🚀 Starting backend for $DURATION..."
           echo "🌐 Backend accessible at: $BACKEND_URL"
           echo ""

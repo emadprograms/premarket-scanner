@@ -27,8 +27,8 @@ const getBaseUrl = () => {
         // Don't guess — appending :8000 to a Vercel domain will never work.
         console.error(
             '[API] NEXT_PUBLIC_API_URL is not set. The frontend cannot reach the backend. ' +
-            'Set this environment variable in your Vercel project settings to your ngrok domain ' +
-            '(e.g., https://your-domain.ngrok-free.app).'
+            'Set this environment variable in your Vercel project settings to your Cloudflare Tunnel domain ' +
+            '(e.g., https://api.yourdomain.com).'
         );
         // Return a placeholder that will fail fast with a clear error
         return `${protocol}//${hostname}`;
@@ -45,7 +45,6 @@ const api = axios.create({
     timeout: 30000, // 30s — backend can be slow during startup/key sync
     headers: {
         'Content-Type': 'application/json',
-        'ngrok-skip-browser-warning': 'true',
     },
 });
 
