@@ -203,3 +203,47 @@ async def get_chart_bars(ticker: str, days: int = 1):
         )
     except Exception as e:
         return GenericResponse(status="error", message=str(e), data={"bars": []})
+
+
+@router.get("/bars/yahoo/{ticker}")
+async def get_yahoo_chart_bars(ticker: str, days: int = 3):
+    """
+    Fetch Yahoo Finance bars for chart plotting (Fallback/Weekend).
+    Returns OHLC data for the requested ticker (default: last 3 days).
+    """
+    try:
+        df = get_live_bars_from_yahoo(ticker, days=days, resolution="MINUTE_5")
+        
+        if df is None or df.empty:
+            return GenericResponse(status="empty", message=f"No Yahoo Finance data for {ticker}", data={"bars": []})
+        
+        # Convert to JSON-serializable list of dicts formatted for lightweight-charts
+        bars = []
+        for _, row in df.iterrows():
+            ts = row.get('timestamp') or row.name
+            # Convert timestamp to unix seconds
+            if hasattr(ts, 'timestamp'):
+                time_val = int(ts.timestamp())
+            else:
+                try:
+                    import pandas as pd
+                    time_val = int(pd.to_datetime(ts).timestamp())
+                except:
+                    time_val = 0
+            
+            bars.append({
+                "time": time_val,
+                "open": float(row['Open']),
+                "high": float(row['High']),
+                "low": float(row['Low']),
+                "close": float(row['Close']),
+            })
+        
+        return GenericResponse(
+            status="success",
+            message=f"{len(bars)} bars for {ticker} (Yahoo)",
+            data={"bars": bars, "ticker": ticker, "source": "yahoo"}
+        )
+    except Exception as e:
+        return GenericResponse(status="error", message=str(e), data={"bars": []})
+

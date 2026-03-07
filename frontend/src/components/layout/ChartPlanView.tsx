@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Badge } from '@/components/ui/core';
-import { getChartBars } from '@/lib/api';
+import { getChartBars, getYahooChartBars } from '@/lib/api';
 import {
     Target,
     BookOpen,
@@ -48,6 +48,8 @@ export default function ChartPlanView({
     const [barCount, setBarCount] = useState(0);
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
     const [showLevels, setShowLevels] = useState(false);
+    const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
+    const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -58,15 +60,24 @@ export default function ChartPlanView({
             setChartLoading(true);
             setChartError(null);
 
-            // Fetch Capital.com bars
+            // Fetch bars based on selected source
             let bars: any[] = [];
             try {
-                const res = await getChartBars(ticker, 1);
-                if (res.status === 'success' && res.data?.bars?.length > 0) {
-                    bars = res.data.bars;
+                if (dataSource === 'yahoo') {
+                    const res = await getYahooChartBars(ticker, 3);
+                    if (res.status === 'success' && res.data?.bars?.length > 0) {
+                        bars = res.data.bars;
+                        setChartSource('yahoo');
+                    }
+                } else {
+                    const res = await getChartBars(ticker, 1);
+                    if (res.status === 'success' && res.data?.bars?.length > 0) {
+                        bars = res.data.bars;
+                        setChartSource('capital');
+                    }
                 }
             } catch (e) {
-                // Capital.com unavailable — will show fallback
+                // Handled below via empty bars array
             }
 
             if (cancelled || !chartContainerRef.current) return;
@@ -169,7 +180,7 @@ export default function ChartPlanView({
                 const from = Math.max(0, bars.length - 60);
                 chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 10 });
             } else {
-                setChartError('Capital.com data unavailable — showing estimated levels');
+                setChartError(`${dataSource === 'yahoo' ? 'Yahoo Finance' : 'Capital.com'} data unavailable — showing estimated levels`);
                 generateFallbackData(series, planALevel, planBLevel, livePrice ?? null);
                 setBarCount(0);
             }
@@ -262,7 +273,7 @@ export default function ChartPlanView({
                 (chartContainerRef.current as any).__cleanup();
             }
         };
-    }, [ticker]);
+    }, [ticker, dataSource]);
 
     const bias = setupBias || 'Neutral';
     const isBullish = /bull|long/i.test(bias);
@@ -273,7 +284,6 @@ export default function ChartPlanView({
 
     return (
         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Chart Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <h3 className="font-black text-xl tracking-tighter">{ticker}</h3>
@@ -287,15 +297,37 @@ export default function ChartPlanView({
                         {bias}
                     </Badge>
                 </div>
-                <div className="flex items-center gap-3">
-                    {barCount > 0 && (
-                        <span className="text-[9px] text-zinc-500 font-mono">{barCount} bars • Capital.com</span>
-                    )}
+                <div className="flex flex-col items-end gap-1">
                     {livePrice && (
                         <span className="font-mono font-black text-lg text-white">
                             ${livePrice.toFixed(2)}
                         </span>
                     )}
+                    <div className="flex items-center gap-2">
+                        {barCount > 0 && (
+                            <span className="text-[9px] text-zinc-500 font-mono">{barCount} bars</span>
+                        )}
+                        <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                            <button
+                                onClick={() => setDataSource('capital')}
+                                className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'capital'
+                                        ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                            >
+                                Capital
+                            </button>
+                            <button
+                                onClick={() => setDataSource('yahoo')}
+                                className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'yahoo'
+                                        ? 'bg-indigo-500/20 text-indigo-400 shadow-sm'
+                                        : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                            >
+                                Yahoo
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

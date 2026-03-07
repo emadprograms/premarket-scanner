@@ -9,3 +9,6 @@ secrets.toml
 data/
 .env
 local_turso.db
+
+backend.log
+frontend.log    
