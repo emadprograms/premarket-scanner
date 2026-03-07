@@ -88,10 +88,11 @@ async def trigger_fetch(ctx, duration: str = "2h"):
                     )
                     
                     if live_url:
-                        final_msg_content += f"> 🔗 **[Monitor Live Runner on GitHub]({live_url})**\n\n"
+                        final_msg_content += f"> 🔗 **[Monitor Live Runner on GitHub]({live_url})**\n"
                     else:
-                        final_msg_content += f"> (Live link could not be retrieved - check GitHub Actions manually)\n\n"
+                        final_msg_content += f"> (Live link could not be retrieved - check GitHub Actions manually)\n"
                         
+                    final_msg_content += f"> 🌐 **[Open Scanner Frontend](https://premarket-scanner.vercel.app)**\n\n"
                     final_msg_content += "> The frontend at Vercel will connect automatically via Cloudflare tunnel once the engine is hot. ⚡"
                     
                     await status_msg.edit(content=final_msg_content)
