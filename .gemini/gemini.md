@@ -92,6 +92,16 @@ The archive API returns cards with these exact field names — the frontend comp
 - Company: `{ ticker, date, company_card_json: {...} }`
 
 ## 8. Evolution & Decision Log (Troubleshooting & Core Reasoning)
+- **Decision: Yahoo Finance Chart Integration (Weekend Fallback)**: Implemented a dual-source data fetching model. Users can toggle between **Capital.com** (intraday) and **Yahoo Finance** (fallback/weekend) in `ChartPlanView.tsx`. A new backend endpoint `/api/scanner/bars/yahoo/{ticker}` normalizes Yahoo data for the chart.
+- **Decision: Chart Session Backgrounds**: Added dynamic amber (Pre-market) and blue (Post-market) background tints to charts. These recalculate when switching data sources to account for timezone alignment differences.
+- **Decision: Capital.com WebSocket Event Loop Fix**: Wrapped synchronous `requests.post()` calls in `create_capital_session_v2` with `asyncio.to_thread()` to prevent blocking the FastAPI event loop.
+- **Decision: Token Cache Expiry**: Added an 8-minute TTL (`480s`) to Capital.com session tokens to refresh them before the 10-minute API limit, preventing "stale token" reconnection loops.
+- **Decision: Application-Level Pings**: Replaced WebSocket protocol pings with Capital.com's expected JSON-level ping (containing `cst`/`securityToken`) every 30s to maintain connection integrity.
+- **Decision: Exponential Backoff**: Implemented 5s → 10s → 20s → 60s backoff for WebSocket reconnection failures to avoid spamming the API during outages.
+- **Decision: Switch to Cloudflare Tunnel**: Replaced ngrok with Cloudflare Tunnel (`cloudflared`) for unlimited bandwidth and improved background stability. Updated setup scripts and GitHub Actions.
+- **Decision: Discord Bot Integration**: Added the Vercel frontend link to the `!turnon` command output so traders can jump straight to the live scanner.
+- **Decision: CORS & Vercel Hardening**: Set `allow_credentials=False` and `expose_headers=["*"]` to ensure compatibility with Cloudflare's tunnel and Vercel's cross-origin requirements.
+- **Decision: Frontend API URL Resolution**: Fixed `getBaseUrl()` to handle Vercel deployments correctly, preventing the appending of `:8000` to production hostnames.
 - **Decision: Removal of AI**: We removed all LLM-based narrative generation because it introduced latency and hallucinations. The "Senior Desk Lead" identity now manifests as mathematical precision in ranking, not verbal analysis.
 - **Decision: Proximity over Percentage**: We moved to ATR-normalized proximity because a $1 move on a $100 stock is not the same as a $1 move on a $500 stock. This ensures the "Tradability" ranking is volatility-aware.
 - **Decision: Backend Host Binding**: Changed backend binding from `127.0.0.1` to `0.0.0.0` to resolve connectivity issues where the frontend couldn't reach the backend due to IPv4/IPv6 resolution ambiguity.
