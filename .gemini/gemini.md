@@ -92,6 +92,7 @@ The archive API returns cards with these exact field names — the frontend comp
 - Company: `{ ticker, date, company_card_json: {...} }`
 
 ## 8. Evolution & Decision Log (Troubleshooting & Core Reasoning)
+- **Decision: Modal Click-Outside-to-Close**: Added an `onClick` handler to the `Modal` backdrop that compares `e.target === e.currentTarget` to allow closing modals by tapping anywhere outside the card area, improving UX for chart and briefing views.
 - **Decision: Yahoo Finance Chart Integration (Weekend Fallback)**: Implemented a dual-source data fetching model. Users can toggle between **Capital.com** (intraday) and **Yahoo Finance** (fallback/weekend) in `ChartPlanView.tsx`. A new backend endpoint `/api/scanner/bars/yahoo/{ticker}` normalizes Yahoo data for the chart.
 - **Decision: Chart Session Backgrounds**: Added dynamic amber (Pre-market) and blue (Post-market) background tints to charts. These recalculate when switching data sources to account for timezone alignment differences.
 - **Decision: Capital.com WebSocket Event Loop Fix**: Wrapped synchronous `requests.post()` calls in `create_capital_session_v2` with `asyncio.to_thread()` to prevent blocking the FastAPI event loop.
