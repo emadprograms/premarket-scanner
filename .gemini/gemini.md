@@ -139,6 +139,7 @@ The archive API returns cards with these exact field names — the frontend comp
 - **Decision: Robust Capital.com WebSocket**: `_handle_message` is `async` with proper `await broadcast_json()`. Pending tickers queue ensures subscriptions happen even if the WS isn't ready when `set_tickers` is called. 30s recv timeout with ping detects stale connections. Debug logging every 50 price updates.
 - **Decision: Card Reorder Animations**: Cards use framer-motion `layout` + `layoutId` for smooth spring animations when re-sorted during live streaming. Transition uses `stiffness: 350, damping: 30`.
 - **Decision: Chart Session Backgrounds**: Pre-market (4:00–9:30 ET) has an amber background tint, post-market (16:00–20:00 ET) has a blue tint. Implemented via HistogramSeries on a hidden `bg` price scale with `scaleMargins: {top:0, bottom:0}` to fill the full chart height. `barSpacing: 20` for fat candles, `setVisibleLogicalRange` shows only the last 60 bars.
+- **Decision: Chart Session Backgrounds (DST Fix)**: Added dynamic amber (Pre-market) and blue (Post-market) background tints to charts. Refactored the hardcoded ET offset into a dynamic calculation that automatically handles Daylight Savings Time, ensuring the 04:00 AM ET pre-market open aligns correctly with UTC (08:00 AM UTC during DST).
 - **Decision: Loading Screen**: Minimal sliding status text ("Connecting to database", "Pulling ATR data from Yahoo Finance", etc.) with a pulsing Zap icon and a thin violet progress bar. Each step slides up and the next slides in from below.
 
 ## 9. The Data Pipeline

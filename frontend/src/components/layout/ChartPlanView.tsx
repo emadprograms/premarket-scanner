@@ -128,7 +128,25 @@ export default function ChartPlanView({
 
                 // Add session background bands: pre-market (amber) + post-market (blue)
                 // Classify bars by session and create colored background rectangles via histogram
-                const ET_OFFSET = -5 * 3600; // ET = UTC-5
+                // Dynamic ET offset calculation (handles DST automatically)
+                const getETOffset = () => {
+                    const now = new Date();
+                    const nyTime = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'America/New_York',
+                        hour: 'numeric',
+                        hour12: false
+                    }).format(now);
+                    const utcTime = new Intl.DateTimeFormat('en-US', {
+                        timeZone: 'UTC',
+                        hour: 'numeric',
+                        hour12: false
+                    }).format(now);
+                    let diff = parseInt(nyTime) - parseInt(utcTime);
+                    if (diff > 12) diff -= 24;
+                    if (diff < -12) diff += 24;
+                    return diff * 3600;
+                };
+                const ET_OFFSET = getETOffset();
                 const preMarketBg: any[] = [];
                 const postMarketBg: any[] = [];
 
@@ -311,8 +329,8 @@ export default function ChartPlanView({
                             <button
                                 onClick={() => setDataSource('capital')}
                                 className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'capital'
-                                        ? 'bg-violet-500/20 text-violet-400 shadow-sm'
-                                        : 'text-zinc-500 hover:text-zinc-300'
+                                    ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                                    : 'text-zinc-500 hover:text-zinc-300'
                                     }`}
                             >
                                 Capital
@@ -320,8 +338,8 @@ export default function ChartPlanView({
                             <button
                                 onClick={() => setDataSource('yahoo')}
                                 className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'yahoo'
-                                        ? 'bg-indigo-500/20 text-indigo-400 shadow-sm'
-                                        : 'text-zinc-500 hover:text-zinc-300'
+                                    ? 'bg-indigo-500/20 text-indigo-400 shadow-sm'
+                                    : 'text-zinc-500 hover:text-zinc-300'
                                     }`}
                             >
                                 Yahoo
