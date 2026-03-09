@@ -142,10 +142,10 @@ def _parse_levels_from_json_blob(card_json_blob: str, logger: AppLogger) -> tupl
             try:
                 briefing_obj = json.loads(briefing_data)
             except json.JSONDecodeError:
-                s_match = re.search(r"S_Levels: \[(.*?)\]", briefing_data)
-                r_match = re.search(r"R_Levels: \[(.*?)\]", briefing_data)
-                s_str = s_match.group(1) if s_match else ""
-                r_str = r_match.group(1) if r_match else ""
+                s_match = re.search(r"S_Levels?:\s*(?:\[([\s\S]*?)\]|([^\n]+))", briefing_data, re.IGNORECASE)
+                r_match = re.search(r"R_Levels?:\s*(?:\[([\s\S]*?)\]|([^\n]+))", briefing_data, re.IGNORECASE)
+                s_str = (s_match.group(1) or s_match.group(2)) if s_match else ""
+                r_str = (r_match.group(1) or r_match.group(2)) if r_match else ""
                 s_levels = [float(x) for x in re.findall(r"[\d\.]+", s_str)]
                 r_levels = [float(x) for x in re.findall(r"[\d\.]+", r_str)]
                 return s_levels, r_levels

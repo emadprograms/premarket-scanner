@@ -236,12 +236,14 @@ export default function ChartPlanView({
                 if (supZones.length === 0 || resZones.length === 0) {
                     const briefing = typeof card?.screener_briefing === 'string' ? card.screener_briefing : '';
                     if (supZones.length === 0) {
-                        const sMatch = briefing.match(/S_Levels?:\s*\[?([^\]\n]+)/i);
-                        if (sMatch) supZones = sMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                        const sMatch = briefing.match(/S_Levels?:\s*(?:\[([\s\S]*?)\]|([^\n]+))/i);
+                        const sRaw = sMatch ? (sMatch[1] || sMatch[2]) : '';
+                        if (sRaw) supZones = sRaw.split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
                     }
                     if (resZones.length === 0) {
-                        const rMatch = briefing.match(/R_Levels?:\s*\[?([^\]\n]+)/i);
-                        if (rMatch) resZones = rMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                        const rMatch = briefing.match(/R_Levels?:\s*(?:\[([\s\S]*?)\]|([^\n]+))/i);
+                        const rRaw = rMatch ? (rMatch[1] || rMatch[2]) : '';
+                        if (rRaw) resZones = rRaw.split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
                     }
                 }
                 supZones.forEach((z: string) => {
@@ -389,12 +391,14 @@ export default function ChartPlanView({
                 if (supZones.length === 0 || resZones.length === 0) {
                     const briefing = typeof card.screener_briefing === 'string' ? card.screener_briefing : '';
                     if (supZones.length === 0) {
-                        const sMatch = briefing.match(/S_Levels?:\s*\[?([^\]\n]+)/i);
-                        if (sMatch) supZones = sMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                        const sMatch = briefing.match(/S_Levels?:\s*(?:\[([\s\S]*?)\]|([^\n]+))/i);
+                        const sRaw = sMatch ? (sMatch[1] || sMatch[2]) : '';
+                        if (sRaw) supZones = sRaw.split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
                     }
                     if (resZones.length === 0) {
-                        const rMatch = briefing.match(/R_Levels?:\s*\[?([^\]\n]+)/i);
-                        if (rMatch) resZones = rMatch[1].split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                        const rMatch = briefing.match(/R_Levels?:\s*(?:\[([\s\S]*?)\]|([^\n]+))/i);
+                        const rRaw = rMatch ? (rMatch[1] || rMatch[2]) : '';
+                        if (rRaw) resZones = rRaw.split(',').map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
                     }
                 }
 
