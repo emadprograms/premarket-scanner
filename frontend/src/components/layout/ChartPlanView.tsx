@@ -356,17 +356,22 @@ export default function ChartPlanView({
             chartRef.current = chart;
             setChartLoading(false);
 
-            // Resize handler
+            // Resize handler — updates both width and height for fullscreen support
             const handleResize = () => {
                 if (chartContainerRef.current) {
-                    chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+                    const w = chartContainerRef.current.clientWidth;
+                    const h = chartContainerRef.current.clientHeight || 500;
+                    chart.applyOptions({ width: w, height: h });
                 }
             };
             window.addEventListener('resize', handleResize);
+            const handleFullscreen = () => setTimeout(handleResize, 100);
+            document.addEventListener('fullscreenchange', handleFullscreen);
 
             // Store cleanup in ref (not on DOM — DOM can detach on re-render)
             cleanupRef.current = () => {
                 window.removeEventListener('resize', handleResize);
+                document.removeEventListener('fullscreenchange', handleFullscreen);
                 chart.remove();
                 chartRef.current = null;
             };
