@@ -69,6 +69,7 @@ export default function ChartPlanView({
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
     const [resolution, setResolution] = useState('MINUTE_5');
+    const [session, setSession] = useState<'ETH' | 'RTH'>('ETH');
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -98,6 +99,27 @@ export default function ChartPlanView({
                 }
             } catch (e) {
                 // Handled below via empty bars array
+            }
+
+            // Filter to RTH (9:30-16:00 ET) if session is RTH
+            if (session === 'RTH' && bars.length > 0) {
+                const getETOffsetHours = () => {
+                    const now = new Date();
+                    const nyH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(now));
+                    const utcH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric', hour12: false }).format(now));
+                    let diff = nyH - utcH;
+                    if (diff > 12) diff -= 24;
+                    if (diff < -12) diff += 24;
+                    return diff;
+                };
+                const etOff = getETOffsetHours();
+                bars = bars.filter((bar: any) => {
+                    const d = new Date(bar.time * 1000);
+                    const etHour = (d.getUTCHours() + 24 + etOff) % 24;
+                    const etMin = d.getUTCMinutes();
+                    const etTime = etHour + etMin / 60;
+                    return etTime >= 9.5 && etTime < 16;
+                });
             }
 
             if (cancelled || !chartContainerRef.current) return;
@@ -315,7 +337,7 @@ export default function ChartPlanView({
                 cleanupRef.current = null;
             }
         };
-    }, [ticker, dataSource, resolution]);
+    }, [ticker, dataSource, resolution, session]);
 
     const bias = setupBias || 'Neutral';
     const isBullish = /bull|long/i.test(bias);
@@ -351,19 +373,41 @@ export default function ChartPlanView({
             {/* Timeframe + Data Source Row */}
             <div className="flex items-center justify-between">
                 {/* Timeframe Selector — LEFT */}
-                <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
-                    {RESOLUTION_LABELS.map(({ key, label }) => (
+                <div className="flex items-center gap-2">
+                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                        {RESOLUTION_LABELS.map(({ key, label }) => (
+                            <button
+                                key={key}
+                                onClick={() => setResolution(key)}
+                                className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${resolution === key
+                                    ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                            >
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
                         <button
-                            key={key}
-                            onClick={() => setResolution(key)}
-                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${resolution === key
-                                ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                            onClick={() => setSession('ETH')}
+                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${session === 'ETH'
+                                ? 'bg-amber-500/20 text-amber-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
                         >
-                            {label}
+                            ETH
                         </button>
-                    ))}
+                        <button
+                            onClick={() => setSession('RTH')}
+                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${session === 'RTH'
+                                ? 'bg-emerald-500/20 text-emerald-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            RTH
+                        </button>
+                    </div>
                 </div>
 
                 {/* Data Source + Bar Count — RIGHT */}

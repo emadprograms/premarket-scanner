@@ -315,7 +315,7 @@ export default function UnifiedCommandPage() {
   if (settings.workstation === 'Archive') return <CardEditorView />;
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto relative animate-in fade-in duration-500">
+    <div className="space-y-8 mx-auto px-4 relative animate-in fade-in duration-500">
       {/* Backend Offline State */}
       {isBackendError ? (
         <div className="h-[60vh] flex flex-col items-center justify-center text-center p-20 border-2 border-dashed border-rose-500/20 rounded-3xl bg-rose-500/5">

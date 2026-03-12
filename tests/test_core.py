@@ -386,3 +386,16 @@ class TestYahooProcessing:
         get_live_bars_from_yahoo(ticker="AAPL", days=30, resolution="MINUTE")
         
         mock_yf.download.assert_called_with("AAPL", period="1mo", interval="1m", progress=False, ignore_tz=False, prepost=True)
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_hour_resolution(self, mock_yf):
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
+        mock_df.index = pd.to_datetime(['2024-01-01'])
+        mock_yf.download.return_value = mock_df
+
+        # HOUR resolution should map to 1h interval with appropriate period
+        get_live_bars_from_yahoo(ticker="AAPL", days=31, resolution="HOUR")
+        
+        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="1h", progress=False, ignore_tz=False, prepost=True)

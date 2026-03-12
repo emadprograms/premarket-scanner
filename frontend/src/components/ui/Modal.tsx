@@ -43,7 +43,7 @@ export function Modal({ isOpen, onClose, title, children, footer, variant = 'def
         >
             <div
                 ref={modalRef}
-                className="relative w-full max-w-6xl bg-background/95 border border-border rounded-xl shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
+                className="relative w-full max-w-[95vw] bg-background/95 border border-border rounded-xl shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             >
                 <div className="flex items-center justify-between p-6 border-b border-border/50">
                     <div className="flex items-center gap-3">
