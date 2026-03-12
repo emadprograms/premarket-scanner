@@ -356,46 +356,117 @@ class TestSocketManager:
 # MODULE 7: YAHOO DATA PROCESSING
 # ============================================================
 class TestYahooProcessing:
-    """Tests the resolution mapping and lookback logic for Yahoo Finance data."""
+    """Tests the resolution mapping, lookback, prepost, dedup, and sorting for Yahoo Finance data."""
     
     @patch('backend.engine.processing.yf')
-    def test_yahoo_resolution_mapping(self, mock_yf):
+    def test_yahoo_intraday_resolution_has_prepost(self, mock_yf):
         from backend.engine.processing import get_live_bars_from_yahoo
         
-        # Test mapping of MINUTE_30 resolution to 30m interval
+        # 30m is intraday → prepost=True
         mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
         mock_df.index = pd.to_datetime(['2024-01-01'])
         mock_yf.download.return_value = mock_df
 
         get_live_bars_from_yahoo(ticker="AAPL", days=5, resolution="MINUTE_30")
 
-        # Check that download was called with the correct mapped interval
         mock_yf.download.assert_called_with("AAPL", period="5d", interval="30m", progress=False, ignore_tz=False, prepost=True)
 
     @patch('backend.engine.processing.yf')
-    def test_yahoo_lookback_limits(self, mock_yf):
+    def test_yahoo_1m_lookback_clamp(self, mock_yf):
         from backend.engine.processing import get_live_bars_from_yahoo
         
         mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
         mock_df.index = pd.to_datetime(['2024-01-01'])
         mock_yf.download.return_value = mock_df
 
-        # 1-minute data has a 7-day limit. Requesting 30 days should clamp to 7 days ("max 7" meaning 7d won't trigger "max" but 7d period).
-        # Actually in our logic, min(days, 7) for 1m means requesting 30 days gets clamped to 7. Days=7 maps to 'period="1mo"'.
-        # Let's verify our logic maps days=7 to "1mo" since our logic assigns yf_period="1mo" for 5 < days <= 30.
+        # 1m has 7-day limit. Requesting 30 days → clamped to 7 → period="1mo" (5 < 7 <= 30)
         get_live_bars_from_yahoo(ticker="AAPL", days=30, resolution="MINUTE")
         
         mock_yf.download.assert_called_with("AAPL", period="1mo", interval="1m", progress=False, ignore_tz=False, prepost=True)
 
     @patch('backend.engine.processing.yf')
-    def test_yahoo_hour_resolution(self, mock_yf):
+    def test_yahoo_hourly_no_prepost(self, mock_yf):
+        """HOUR resolution should map to 1h with prepost=False (not intraday)."""
         from backend.engine.processing import get_live_bars_from_yahoo
         
         mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
         mock_df.index = pd.to_datetime(['2024-01-01'])
         mock_yf.download.return_value = mock_df
 
-        # HOUR resolution should map to 1h interval with appropriate period
         get_live_bars_from_yahoo(ticker="AAPL", days=31, resolution="HOUR")
         
-        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="1h", progress=False, ignore_tz=False, prepost=True)
+        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="1h", progress=False, ignore_tz=False, prepost=False)
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_daily_no_prepost(self, mock_yf):
+        """DAY resolution should map to 1d with prepost=False."""
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
+        mock_df.index = pd.to_datetime(['2024-01-01'])
+        mock_yf.download.return_value = mock_df
+
+        get_live_bars_from_yahoo(ticker="AAPL", days=365, resolution="DAY")
+        
+        mock_yf.download.assert_called_with("AAPL", period="1y", interval="1d", progress=False, ignore_tz=False, prepost=False)
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_deduplicates_bars(self, mock_yf):
+        """Duplicate timestamps should be removed."""
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        # Simulate duplicate rows from yfinance
+        dates = pd.to_datetime(['2024-01-01 10:00', '2024-01-01 10:00', '2024-01-01 10:05'])
+        mock_df = pd.DataFrame({
+            'Open': [100, 100, 101], 'High': [105, 105, 106],
+            'Low': [95, 95, 96], 'Close': [102, 102, 103]
+        }, index=dates)
+        mock_yf.download.return_value = mock_df
+
+        result = get_live_bars_from_yahoo(ticker="AAPL", days=1, resolution="MINUTE_5")
+        
+        assert result is not None
+        assert len(result) == 2, f"Expected 2 bars after dedup, got {len(result)}"
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_sorts_chronologically(self, mock_yf):
+        """Bars should be sorted oldest to newest."""
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        # Out-of-order timestamps
+        dates = pd.to_datetime(['2024-01-01 10:10', '2024-01-01 10:00', '2024-01-01 10:05'])
+        mock_df = pd.DataFrame({
+            'Open': [102, 100, 101], 'High': [107, 105, 106],
+            'Low': [97, 95, 96], 'Close': [104, 102, 103]
+        }, index=dates)
+        mock_yf.download.return_value = mock_df
+
+        result = get_live_bars_from_yahoo(ticker="AAPL", days=1, resolution="MINUTE_5")
+        
+        assert result is not None
+        timestamps = list(result['timestamp'])
+        assert timestamps == sorted(timestamps), "Bars should be in chronological order"
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_ticker_mapping(self, mock_yf):
+        """Special tickers should be mapped to their Yahoo equivalents."""
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
+        mock_df.index = pd.to_datetime(['2024-01-01'])
+        mock_yf.download.return_value = mock_df
+
+        get_live_bars_from_yahoo(ticker="BTCUSDT", days=5, resolution="MINUTE_5")
+        
+        # Should map BTCUSDT → BTC-USD
+        mock_yf.download.assert_called_with("BTC-USD", period="5d", interval="5m", progress=False, ignore_tz=False, prepost=True)
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_empty_returns_none(self, mock_yf):
+        """Empty DataFrame from yfinance should return None."""
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        mock_yf.download.return_value = pd.DataFrame()
+        result = get_live_bars_from_yahoo(ticker="AAPL", days=5, resolution="MINUTE_5")
+        
+        assert result is None
