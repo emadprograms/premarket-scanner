@@ -64,6 +64,7 @@ export default function ChartPlanView({
     const seriesRef = useRef<any>(null);
     const cleanupRef = useRef<(() => void) | null>(null);
     const vpCleanupRef = useRef<(() => void) | null>(null);
+    const vpCanvasRef = useRef<HTMLCanvasElement | null>(null);
     const [chartLoading, setChartLoading] = useState(true);
     const [chartError, setChartError] = useState<string | null>(null);
     const [barCount, setBarCount] = useState(0);
@@ -361,7 +362,7 @@ export default function ChartPlanView({
         };
     }, [ticker, dataSource, resolution, session]);
 
-    // Volume Profile — separate effect so toggling VP doesn't rebuild the chart
+    // Volume Profile — canvas-based horizontal bars on the left of the chart
     useEffect(() => {
         // Cleanup previous VP
         if (vpCleanupRef.current) {
@@ -369,11 +370,16 @@ export default function ChartPlanView({
             vpCleanupRef.current = null;
         }
 
-        if (!technicals.has('vp') || !chartRef.current || !seriesRef.current || barsRef.current.length === 0) return;
+        if (!technicals.has('vp') || !chartRef.current || !seriesRef.current || barsRef.current.length === 0 || !vpCanvasRef.current) return;
 
         const chart = chartRef.current;
         const series = seriesRef.current;
-        let vpLines: any[] = [];
+        const canvas = vpCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const VP_MAX_WIDTH = 120; // max width of biggest bar in pixels
+        const BUCKET_COUNT = 70;
 
         const computeAndRenderVP = () => {
             const visibleRange = chart.timeScale().getVisibleLogicalRange();
@@ -384,6 +390,7 @@ export default function ChartPlanView({
 
             const visibleBars = barsRef.current.slice(from, to + 1);
 
+            // Find price range
             let minP = Infinity, maxP = -Infinity;
             for (const b of visibleBars) {
                 if (b.low < minP) minP = b.low;
@@ -391,14 +398,14 @@ export default function ChartPlanView({
             }
             if (minP >= maxP) return;
 
-            const bucketCount = 40;
-            const step = (maxP - minP) / bucketCount;
-            const buckets = new Array(bucketCount).fill(0);
+            // Bucket volume
+            const step = (maxP - minP) / BUCKET_COUNT;
+            const buckets = new Array(BUCKET_COUNT).fill(0);
 
             for (const b of visibleBars) {
                 const vol = b.volume || 1;
                 const bLow = Math.max(0, Math.floor((b.low - minP) / step));
-                const bHigh = Math.min(bucketCount - 1, Math.floor((b.high - minP) / step));
+                const bHigh = Math.min(BUCKET_COUNT - 1, Math.floor((b.high - minP) / step));
                 const spread = Math.max(1, bHigh - bLow + 1);
                 for (let i = bLow; i <= bHigh; i++) {
                     buckets[i] += vol / spread;
@@ -409,47 +416,67 @@ export default function ChartPlanView({
             if (maxVol === 0) return;
             const pocIdx = buckets.indexOf(maxVol);
 
-            // Remove old VP price lines
-            vpLines.forEach(line => {
-                try { series.removePriceLine(line); } catch {}
-            });
-            vpLines = [];
+            // Size canvas to chart
+            const chartEl = chartContainerRef.current;
+            if (!chartEl) return;
+            const rect = chartEl.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = VP_MAX_WIDTH * dpr;
+            canvas.height = rect.height * dpr;
+            canvas.style.width = VP_MAX_WIDTH + 'px';
+            canvas.style.height = rect.height + 'px';
+            ctx.scale(dpr, dpr);
 
-            // Render VP as price lines on the main candlestick series
-            for (let i = 0; i < bucketCount; i++) {
-                const price = minP + (i + 0.5) * step;
+            // Clear
+            ctx.clearRect(0, 0, VP_MAX_WIDTH, rect.height);
+
+            // Draw horizontal bars
+            for (let i = 0; i < BUCKET_COUNT; i++) {
+                const priceTop = minP + (i + 1) * step;
+                const priceBot = minP + i * step;
+
+                const yTop = series.priceToCoordinate(priceTop);
+                const yBot = series.priceToCoordinate(priceBot);
+                if (yTop === null || yBot === null) continue;
+
+                const barHeight = Math.max(1, Math.abs(yBot - yTop) - 0.5);
+                const y = Math.min(yTop, yBot);
                 const normalizedVol = buckets[i] / maxVol;
-                if (normalizedVol < 0.02) continue;
+                const barWidth = normalizedVol * VP_MAX_WIDTH;
+
+                if (barWidth < 1) continue;
 
                 const isPOC = i === pocIdx;
-                const line = series.createPriceLine({
-                    price,
-                    color: isPOC
-                        ? `rgba(251, 191, 36, ${0.3 + normalizedVol * 0.5})`
-                        : `rgba(139, 92, 246, ${0.1 + normalizedVol * 0.4})`,
-                    lineWidth: isPOC ? 2 : 1,
-                    lineStyle: 0, // Solid
-                    axisLabelVisible: isPOC,
-                    title: isPOC ? 'POC' : '',
-                });
-                vpLines.push(line);
+                if (isPOC) {
+                    ctx.fillStyle = `rgba(251, 191, 36, 0.45)`; // Amber POC
+                } else {
+                    ctx.fillStyle = `rgba(139, 92, 246, ${0.12 + normalizedVol * 0.28})`;
+                }
+                ctx.fillRect(0, y, barWidth, barHeight);
             }
+
+            // Reset transform for next render
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
         };
 
-        // Initial render after a tick (chart needs to settle)
-        const timer = setTimeout(computeAndRenderVP, 150);
+        // Initial render
+        const timer = setTimeout(computeAndRenderVP, 200);
 
         // Dynamic recalculation on scroll/zoom
         chart.timeScale().subscribeVisibleLogicalRangeChange(computeAndRenderVP);
 
-        // Cleanup: remove lines and unsubscribe
+        // Also rerender on cross-hair move (price scale changes affect Y coordinates)
+        const handleCrosshair = () => computeAndRenderVP();
+        chart.subscribeCrosshairMove(handleCrosshair);
+
         vpCleanupRef.current = () => {
             clearTimeout(timer);
             try { chart.timeScale().unsubscribeVisibleLogicalRangeChange(computeAndRenderVP); } catch {}
-            vpLines.forEach(line => {
-                try { series.removePriceLine(line); } catch {}
-            });
-            vpLines = [];
+            try { chart.unsubscribeCrosshairMove(handleCrosshair); } catch {}
+            if (ctx) {
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
         };
 
         return () => {
@@ -528,6 +555,8 @@ export default function ChartPlanView({
                         >
                             RTH
                         </button>
+                    </div>
+                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
                         <button
                             onClick={() => toggleTechnical('vp')}
                             className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${technicals.has('vp')
@@ -583,6 +612,11 @@ export default function ChartPlanView({
 
             {/* Chart */}
             <div className="relative">
+                <canvas
+                    ref={vpCanvasRef}
+                    className="absolute left-0 top-0 z-10 pointer-events-none"
+                    style={{ borderRadius: '0.75rem 0 0 0.75rem' }}
+                />
                 <div
                     ref={chartContainerRef}
                     className="w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950"
