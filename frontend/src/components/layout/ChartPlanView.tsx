@@ -102,24 +102,31 @@ export default function ChartPlanView({
             }
 
             // Filter to RTH (9:30-16:00 ET) if session is RTH
-            if (session === 'RTH' && bars.length > 0) {
+            // Skip for DAY resolution — daily bars have no intraday session concept
+            if (session === 'RTH' && bars.length > 0 && resolution !== 'DAY') {
                 const getETOffsetHours = () => {
                     const now = new Date();
-                    const nyH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false }).format(now));
-                    const utcH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric', hour12: false }).format(now));
+                    const nyH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hourCycle: 'h23' }).format(now));
+                    const utcH = parseInt(new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric', hourCycle: 'h23' }).format(now));
                     let diff = nyH - utcH;
                     if (diff > 12) diff -= 24;
                     if (diff < -12) diff += 24;
                     return diff;
                 };
                 const etOff = getETOffsetHours();
-                bars = bars.filter((bar: any) => {
+                const filtered = bars.filter((bar: any) => {
                     const d = new Date(bar.time * 1000);
                     const etHour = (d.getUTCHours() + 24 + etOff) % 24;
                     const etMin = d.getUTCMinutes();
                     const etTime = etHour + etMin / 60;
                     return etTime >= 9.5 && etTime < 16;
                 });
+                // Safety: if filter removed ALL bars, fall back to ETH
+                if (filtered.length > 0) {
+                    bars = filtered;
+                } else {
+                    console.warn('RTH filter removed all bars — falling back to ETH');
+                }
             }
 
             if (cancelled || !chartContainerRef.current) return;
@@ -236,17 +243,8 @@ export default function ChartPlanView({
                     scaleMargins: { top: 0, bottom: 0 },
                 });
 
-                // Show candles proportional to chart width, but adjusted for session density
-                // RTH needs more candles visible to make them thinner
-                // ETH needs fewer candles visible to make them thicker
-                const chartWidth = chartContainerRef.current?.clientWidth || 800;
-                let divisor = 10;
-                if (session === 'RTH') divisor = 7;  // More bars visible = thinner candles
-                if (session === 'ETH') divisor = 18; // Fewer bars visible = thicker candles
-                
-                const visibleBars = Math.floor(chartWidth / divisor);
-                const from = Math.max(0, bars.length - visibleBars);
-                chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 10 });
+                // Auto-fit all bars to available width — handles resize naturally
+                chart.timeScale().fitContent();
             } else {
                 setChartError(`${dataSource === 'yahoo' ? 'Yahoo Finance' : 'Capital.com'} data unavailable — showing estimated levels`);
                 generateFallbackData(series, planALevel, planBLevel, livePrice ?? null);
@@ -324,6 +322,7 @@ export default function ChartPlanView({
             const handleResize = () => {
                 if (chartContainerRef.current) {
                     chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+                    chart.timeScale().fitContent();
                 }
             };
             window.addEventListener('resize', handleResize);
