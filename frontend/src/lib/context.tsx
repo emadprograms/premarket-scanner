@@ -10,6 +10,7 @@ interface ChartDefaults {
     resolution: string;
     session: 'ETH' | 'RTH';
     vpEnabled: boolean;
+    highContrast: boolean;
 }
 
 interface MissionSettings {
@@ -66,6 +67,7 @@ const defaultSettings: MissionSettings = {
         resolution: 'MINUTE_5',
         session: 'ETH',
         vpEnabled: true,
+        highContrast: false,
     },
 };
 

@@ -239,7 +239,7 @@ export default function Shell({ children }: ShellProps) {
                                             </div>
 
                                             {/* VP Toggle */}
-                                            <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center justify-between mb-2.5">
                                                 <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Volume Profile</span>
                                                 <button
                                                     onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, vpEnabled: !settings.chartDefaults.vpEnabled } })}
@@ -250,6 +250,21 @@ export default function Shell({ children }: ShellProps) {
                                                     }`}
                                                 >
                                                     {settings.chartDefaults.vpEnabled ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+
+                                            {/* High Contrast Toggle */}
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">High Contrast</span>
+                                                <button
+                                                    onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, highContrast: !settings.chartDefaults.highContrast } })}
+                                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
+                                                        settings.chartDefaults.highContrast
+                                                            ? 'bg-amber-500/20 text-amber-400'
+                                                            : 'bg-zinc-800 text-zinc-500'
+                                                    }`}
+                                                >
+                                                    {settings.chartDefaults.highContrast ? 'ON' : 'OFF'}
                                                 </button>
                                             </div>
 

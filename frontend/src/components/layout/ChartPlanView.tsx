@@ -84,6 +84,7 @@ export default function ChartPlanView({
     const [resolution, setResolution] = useState(chartDefaults.resolution);
     const [session, setSession] = useState<'ETH' | 'RTH'>(chartDefaults.session);
     const [technicals, setTechnicals] = useState<Set<string>>(new Set(chartDefaults.vpEnabled ? ['vp'] : []));
+    const [highContrast, setHighContrast] = useState(chartDefaults.highContrast);
     const barsRef = useRef<any[]>([]);
 
     const toggleTechnical = (key: string) => {
@@ -173,41 +174,41 @@ export default function ChartPlanView({
 
             const chart = createChart(chartContainerRef.current, {
                 layout: {
-                    background: { type: ColorType.Solid, color: '#09090b' },
-                    textColor: '#a1a1aa',
+                    background: { type: ColorType.Solid, color: highContrast ? '#d4d4d4' : '#09090b' },
+                    textColor: highContrast ? '#27272a' : '#a1a1aa',
                     fontSize: 11,
                 },
                 grid: {
-                    vertLines: { color: 'rgba(255,255,255,0.03)' },
-                    horzLines: { color: 'rgba(255,255,255,0.03)' },
+                    vertLines: { color: highContrast ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.03)' },
+                    horzLines: { color: highContrast ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.03)' },
                 },
                 crosshair: {
                     mode: 0,
-                    vertLine: { color: 'rgba(139,92,246,0.3)', width: 1 },
-                    horzLine: { color: 'rgba(139,92,246,0.3)', width: 1 },
+                    vertLine: { color: highContrast ? 'rgba(0,0,0,0.3)' : 'rgba(139,92,246,0.3)', width: 1 },
+                    horzLine: { color: highContrast ? 'rgba(0,0,0,0.3)' : 'rgba(139,92,246,0.3)', width: 1 },
                 },
                 rightPriceScale: {
-                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderColor: highContrast ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)',
                     scaleMargins: { top: 0.1, bottom: 0.1 },
                 },
                 timeScale: {
-                    borderColor: 'rgba(255,255,255,0.1)',
+                    borderColor: highContrast ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)',
                     timeVisible: true,
                     secondsVisible: false,
                     rightOffset: 5,
-                    barSpacing: 12, // Fixed candle width — consistent across all timeframes/sessions
+                    barSpacing: 12,
                 },
                 width: chartContainerRef.current.clientWidth,
                 height: document.fullscreenElement ? (chartContainerRef.current.clientHeight || 500) : 500,
             });
 
             const series = chart.addSeries(CandlestickSeries, {
-                upColor: '#22c55e',
-                downColor: '#ef4444',
-                borderUpColor: '#22c55e',
-                borderDownColor: '#ef4444',
-                wickUpColor: '#22c55e',
-                wickDownColor: '#ef4444',
+                upColor: highContrast ? '#ffffff' : '#22c55e',
+                downColor: highContrast ? '#171717' : '#ef4444',
+                borderUpColor: highContrast ? '#000000' : '#22c55e',
+                borderDownColor: highContrast ? '#000000' : '#ef4444',
+                wickUpColor: highContrast ? '#000000' : '#22c55e',
+                wickDownColor: highContrast ? '#000000' : '#ef4444',
             });
             seriesRef.current = series;
 
@@ -390,7 +391,7 @@ export default function ChartPlanView({
                 cleanupRef.current = null;
             }
         };
-    }, [ticker, dataSource, resolution, session]);
+    }, [ticker, dataSource, resolution, session, highContrast]);
 
     // Volume Profile — canvas-based horizontal bars on the left of the chart
     useEffect(() => {
@@ -596,6 +597,15 @@ export default function ChartPlanView({
                                 }`}
                         >
                             VP
+                        </button>
+                        <button
+                            onClick={() => setHighContrast(prev => !prev)}
+                            className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${highContrast
+                                ? 'bg-amber-500/20 text-amber-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            HC
                         </button>
                     </div>
                 </div>
