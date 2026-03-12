@@ -179,8 +179,8 @@ export default function ChartPlanView({
                     fontSize: 11,
                 },
                 grid: {
-                    vertLines: { color: highContrast ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.03)' },
-                    horzLines: { color: highContrast ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.03)' },
+                    vertLines: { color: highContrast ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.03)' },
+                    horzLines: { color: highContrast ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.03)' },
                 },
                 crosshair: {
                     mode: 0,
@@ -479,9 +479,11 @@ export default function ChartPlanView({
 
                 const isPOC = i === pocIdx;
                 if (isPOC) {
-                    ctx.fillStyle = `rgba(251, 191, 36, 0.60)`; // Amber POC
+                    ctx.fillStyle = highContrast ? `rgba(50, 50, 50, 0.60)` : `rgba(251, 191, 36, 0.60)`;
                 } else {
-                    ctx.fillStyle = `rgba(139, 92, 246, ${0.20 + normalizedVol * 0.35})`;
+                    ctx.fillStyle = highContrast
+                        ? `rgba(80, 80, 80, ${0.20 + normalizedVol * 0.35})`
+                        : `rgba(139, 92, 246, ${0.20 + normalizedVol * 0.35})`;
                 }
                 ctx.fillRect(0, y, barWidth, barHeight);
             }
@@ -516,7 +518,7 @@ export default function ChartPlanView({
                 vpCleanupRef.current = null;
             }
         };
-    }, [technicals, chartLoading]);
+    }, [technicals, chartLoading, highContrast]);
 
     const bias = setupBias || 'Neutral';
     const isBullish = /bull|long/i.test(bias);
