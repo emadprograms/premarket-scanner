@@ -239,7 +239,10 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
         elif ticker == "EURUSDT": yf_ticker = "EURUSD=X"
         elif ticker == "CL=F": yf_ticker = "CL=F"
 
-        df = yf.download(yf_ticker, period=yf_period, interval=interval, progress=False, ignore_tz=False, prepost=True)
+        # prepost only relevant for intraday intervals
+        use_prepost = interval in ('1m', '5m', '15m', '30m')
+
+        df = yf.download(yf_ticker, period=yf_period, interval=interval, progress=False, ignore_tz=False, prepost=use_prepost)
         
         if df.empty:
             if logger: logger.log(f"   ⚠️ Yahoo Finance: No data for {yf_ticker}")
@@ -267,13 +270,13 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
             return None
             
         if df['timestamp'].dt.tz is None:
-             # YF usually returns localized to exchange time (often ET) or UTC depending on params.
-             # If naive, assume ET for US stocks? Or UTC? 
-             # Safe bet: Localize to UTC if we can, or assume it's roughly correct.
-             # Actually YF 'Datetime' is usually timezone-aware if interval < 1d.
-             df['timestamp'] = df['timestamp'].dt.tz_localize('UTC') # Assumption
+             # Daily bars from YF are timezone-naive; localize to exchange TZ (US/Eastern)
+             df['timestamp'] = df['timestamp'].dt.tz_localize('US/Eastern').dt.tz_convert('UTC')
         else:
              df['timestamp'] = df['timestamp'].dt.tz_convert('UTC')
+
+        # Deduplicate and sort chronologically
+        df = df.drop_duplicates(subset='timestamp').sort_values('timestamp').reset_index(drop=True)
 
         df['source'] = 'Yahoo Finance'
         

@@ -156,7 +156,7 @@ export default function ChartPlanView({
                     timeVisible: true,
                     secondsVisible: false,
                     rightOffset: 15,
-                    barSpacing: 8,
+                    barSpacing: 12, // Fixed candle width — consistent across all timeframes/sessions
                 },
                 width: chartContainerRef.current.clientWidth,
                 height: 500,
@@ -243,8 +243,8 @@ export default function ChartPlanView({
                     scaleMargins: { top: 0, bottom: 0 },
                 });
 
-                // Auto-fit all bars to available width — handles resize naturally
-                chart.timeScale().fitContent();
+                // Scroll to the most recent bars — candle width stays fixed via barSpacing
+                chart.timeScale().scrollToRealTime();
             } else {
                 setChartError(`${dataSource === 'yahoo' ? 'Yahoo Finance' : 'Capital.com'} data unavailable — showing estimated levels`);
                 generateFallbackData(series, planALevel, planBLevel, livePrice ?? null);
@@ -322,7 +322,6 @@ export default function ChartPlanView({
             const handleResize = () => {
                 if (chartContainerRef.current) {
                     chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-                    chart.timeScale().fitContent();
                 }
             };
             window.addEventListener('resize', handleResize);
