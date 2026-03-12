@@ -244,13 +244,21 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
         # prepost only relevant for intraday intervals
         use_prepost = interval in ('1m', '5m', '15m', '30m')
 
-        df = yf.download(yf_ticker, period=yf_period, interval=interval, progress=False, ignore_tz=False, prepost=use_prepost)
+        df = yf.download(
+            yf_ticker,
+            period=yf_period,
+            interval=interval,
+            progress=False,
+            prepost=use_prepost,
+            auto_adjust=True,
+            multi_level_index=False,
+        )
         
         if df.empty:
             if logger: logger.log(f"   ⚠️ Yahoo Finance: No data for {yf_ticker}")
             return None
             
-        # Flatten MultiIndex columns if present (yfinance >= 0.2.0)
+        # Flatten MultiIndex columns if still present (safety net)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
             
@@ -258,7 +266,7 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
         df.reset_index(inplace=True)
         
         # Renaissance of Column Names
-        # YF gives: Date/Datetime, Open, High, Low, Close, Adj Close, Volume
+        # YF gives: Date/Datetime, Open, High, Low, Close, Volume
         rename_map = {
             'Datetime': 'timestamp', 
             'Date': 'timestamp',
@@ -268,8 +276,12 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
         
         # Ensure timestamp is UTC
         if 'timestamp' not in df.columns:
-            # Should not happen with reset_index but just in case
-            return None
+            # Fallback: use first column if it looks like a datetime
+            first_col = df.columns[0]
+            if pd.api.types.is_datetime64_any_dtype(df[first_col]):
+                df.rename(columns={first_col: 'timestamp'}, inplace=True)
+            else:
+                return None
             
         if df['timestamp'].dt.tz is None:
              # Daily bars from YF are timezone-naive; localize to exchange TZ (US/Eastern)

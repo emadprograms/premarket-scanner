@@ -369,7 +369,7 @@ class TestYahooProcessing:
 
         get_live_bars_from_yahoo(ticker="AAPL", days=5, resolution="MINUTE_30")
 
-        mock_yf.download.assert_called_with("AAPL", period="5d", interval="30m", progress=False, ignore_tz=False, prepost=True)
+        mock_yf.download.assert_called_with("AAPL", period="5d", interval="30m", progress=False, prepost=True, auto_adjust=True, multi_level_index=False)
 
     @patch('backend.engine.processing.yf')
     def test_yahoo_1m_lookback_clamp(self, mock_yf):
@@ -382,7 +382,7 @@ class TestYahooProcessing:
         # 1m has 7-day limit. Requesting 30 days → clamped to 7 → period="1mo" (5 < 7 <= 30)
         get_live_bars_from_yahoo(ticker="AAPL", days=30, resolution="MINUTE")
         
-        mock_yf.download.assert_called_with("AAPL", period="1mo", interval="1m", progress=False, ignore_tz=False, prepost=True)
+        mock_yf.download.assert_called_with("AAPL", period="1mo", interval="1m", progress=False, prepost=True, auto_adjust=True, multi_level_index=False)
 
     @patch('backend.engine.processing.yf')
     def test_yahoo_hourly_no_prepost(self, mock_yf):
@@ -395,7 +395,7 @@ class TestYahooProcessing:
 
         get_live_bars_from_yahoo(ticker="AAPL", days=31, resolution="HOUR")
         
-        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="1h", progress=False, ignore_tz=False, prepost=False)
+        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="1h", progress=False, prepost=False, auto_adjust=True, multi_level_index=False)
 
     @patch('backend.engine.processing.yf')
     def test_yahoo_daily_no_prepost(self, mock_yf):
@@ -408,7 +408,7 @@ class TestYahooProcessing:
 
         get_live_bars_from_yahoo(ticker="AAPL", days=365, resolution="DAY")
         
-        mock_yf.download.assert_called_with("AAPL", period="1y", interval="1d", progress=False, ignore_tz=False, prepost=False)
+        mock_yf.download.assert_called_with("AAPL", period="1y", interval="1d", progress=False, prepost=False, auto_adjust=True, multi_level_index=False)
 
     @patch('backend.engine.processing.yf')
     def test_yahoo_4h_resolution(self, mock_yf):
@@ -421,7 +421,7 @@ class TestYahooProcessing:
 
         get_live_bars_from_yahoo(ticker="AAPL", days=31, resolution="HOUR_4")
         
-        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="4h", progress=False, ignore_tz=False, prepost=False)
+        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="4h", progress=False, prepost=False, auto_adjust=True, multi_level_index=False)
 
     @patch('backend.engine.processing.yf')
     def test_yahoo_deduplicates_bars(self, mock_yf):
@@ -474,7 +474,7 @@ class TestYahooProcessing:
         get_live_bars_from_yahoo(ticker="BTCUSDT", days=5, resolution="MINUTE_5")
         
         # Should map BTCUSDT → BTC-USD
-        mock_yf.download.assert_called_with("BTC-USD", period="5d", interval="5m", progress=False, ignore_tz=False, prepost=True)
+        mock_yf.download.assert_called_with("BTC-USD", period="5d", interval="5m", progress=False, prepost=True, auto_adjust=True, multi_level_index=False)
 
     @patch('backend.engine.processing.yf')
     def test_yahoo_empty_returns_none(self, mock_yf):
