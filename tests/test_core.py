@@ -411,6 +411,19 @@ class TestYahooProcessing:
         mock_yf.download.assert_called_with("AAPL", period="1y", interval="1d", progress=False, ignore_tz=False, prepost=False)
 
     @patch('backend.engine.processing.yf')
+    def test_yahoo_4h_resolution(self, mock_yf):
+        """HOUR_4 resolution should map to 4h with prepost=False."""
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
+        mock_df.index = pd.to_datetime(['2024-01-01'])
+        mock_yf.download.return_value = mock_df
+
+        get_live_bars_from_yahoo(ticker="AAPL", days=31, resolution="HOUR_4")
+        
+        mock_yf.download.assert_called_with("AAPL", period="3mo", interval="4h", progress=False, ignore_tz=False, prepost=False)
+
+    @patch('backend.engine.processing.yf')
     def test_yahoo_deduplicates_bars(self, mock_yf):
         """Duplicate timestamps should be removed."""
         from backend.engine.processing import get_live_bars_from_yahoo

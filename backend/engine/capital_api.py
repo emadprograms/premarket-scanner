@@ -98,6 +98,8 @@ def fetch_capital_data_range(epic: str, cst: str, xst: str, start_utc, end_utc, 
         limit_lookback = now_utc - timedelta(days=14) # ~672 bars
     elif res_upper == "HOUR":
         limit_lookback = now_utc - timedelta(days=31) # ~744 bars
+    elif res_upper == "HOUR_4":
+        limit_lookback = now_utc - timedelta(days=31) # ~186 bars
     else: # DAY or others
         limit_lookback = now_utc - timedelta(days=365)
     

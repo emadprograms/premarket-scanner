@@ -16,14 +16,15 @@ import {
 
 // Module-level constants (never re-created on render)
 const LOOKBACK: Record<string, Record<string, number>> = {
-    capital: { MINUTE: 1, MINUTE_5: 3, MINUTE_30: 14, HOUR: 31, DAY: 365 },
-    yahoo:   { MINUTE: 7, MINUTE_5: 60, MINUTE_30: 60, HOUR: 730, DAY: 3650 },
+    capital: { MINUTE: 1, MINUTE_5: 3, MINUTE_30: 14, HOUR: 31, HOUR_4: 31, DAY: 365 },
+    yahoo:   { MINUTE: 7, MINUTE_5: 60, MINUTE_30: 60, HOUR: 730, HOUR_4: 730, DAY: 3650 },
 };
 const RESOLUTION_LABELS: { key: string; label: string }[] = [
     { key: 'MINUTE', label: '1m' },
     { key: 'MINUTE_5', label: '5m' },
     { key: 'MINUTE_30', label: '30m' },
     { key: 'HOUR', label: '1H' },
+    { key: 'HOUR_4', label: '4H' },
     { key: 'DAY', label: '1D' },
 ];
 
@@ -416,6 +417,19 @@ export default function ChartPlanView({
                     </div>
                 </div>
 
+                {/* Position Size — CENTER */}
+                {(positionSize !== null && positionSize !== undefined) || isBreached ? (
+                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-zinc-900/50 border border-white/5">
+                        <ArrowUpDown className="w-3 h-3 text-zinc-500" />
+                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Size:</span>
+                        {isBreached ? (
+                            <span className="text-[10px] font-mono font-bold text-zinc-400">N/A</span>
+                        ) : positionSize ? (
+                            <span className="text-[10px] font-mono font-bold text-violet-400">{positionSize}</span>
+                        ) : null}
+                    </div>
+                ) : null}
+
                 {/* Data Source + Bar Count — RIGHT */}
                 <div className="flex items-center gap-2">
                     {barCount > 0 && (
@@ -475,18 +489,6 @@ export default function ChartPlanView({
                 <div className="text-[10px] text-amber-500/80 font-mono text-center">{chartError}</div>
             )}
 
-            {/* Position Size Row */}
-            {(positionSize !== null && positionSize !== undefined) || isBreached ? (
-                <div className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg bg-zinc-900/30 border border-white/5">
-                    <ArrowUpDown className="w-3.5 h-3.5 text-zinc-500" />
-                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Position Size:</span>
-                    {isBreached ? (
-                        <span className="text-sm font-mono font-bold text-zinc-400">N/A — Invalidated</span>
-                    ) : positionSize ? (
-                        <span className="text-sm font-mono font-bold text-violet-400">{positionSize} shares</span>
-                    ) : null}
-                </div>
-            ) : null}
 
             {/* Price Ladder */}
             {card && (() => {

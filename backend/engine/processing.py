@@ -199,6 +199,7 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
             "MINUTE_15": "15m",
             "MINUTE_30": "30m",
             "HOUR": "1h",
+            "HOUR_4": "4h",
             "DAY": "1d",
         }
         interval = interval_map.get(resolution.upper(), "5m")
@@ -210,6 +211,7 @@ def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINU
             "15m": 60,
             "30m": 60,
             "1h": 730,
+            "4h": 730,
             "1d": 3650,
         }
         max_days = max_days_map.get(interval, 60)
