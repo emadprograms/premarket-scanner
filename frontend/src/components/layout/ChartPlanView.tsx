@@ -9,6 +9,7 @@ import {
     BookOpen,
     ArrowUpDown,
     ChevronDown,
+    ChevronRight,
     ShieldAlert,
     Activity,
     Crosshair,
@@ -74,6 +75,7 @@ export default function ChartPlanView({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
     const [showLevels, setShowLevels] = useState(true);
+    const [ladderOpen, setLadderOpen] = useState(false);
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
     const [resolution, setResolution] = useState('MINUTE_5');
@@ -667,103 +669,99 @@ export default function ChartPlanView({
                         <span className="text-[11px] text-zinc-600 font-mono tracking-wider">LOADING CHART</span>
                     </div>
                 )}
+
+                {/* Price Ladder — sidebar overlay */}
+                {card && (() => {
+                    let supZones = parseZones(card.technicalStructure?.majorSupport);
+                    let resZones = parseZones(card.technicalStructure?.majorResistance);
+                    if (supZones.length === 0 || resZones.length === 0) {
+                        const briefing = typeof card.screener_briefing === 'string' ? card.screener_briefing : '';
+                        if (supZones.length === 0) {
+                            const sMatch = briefing.match(/(?:\*\*|__)?S[_\-\s]Levels?(?:\*\*|__)?[:\-\=]?\s*(?:\[([\s\S]*?)\]|([^\n\r]+))/i);
+                            const sRaw = sMatch ? (sMatch[1] || sMatch[2]) : '';
+                            if (sRaw) supZones = sRaw.split(/[,;|]/).map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                        }
+                        if (resZones.length === 0) {
+                            const rMatch = briefing.match(/(?:\*\*|__)?R[_\-\s]Levels?(?:\*\*|__)?[:\-\=]?\s*(?:\[([\s\S]*?)\]|([^\n\r]+))/i);
+                            const rRaw = rMatch ? (rMatch[1] || rMatch[2]) : '';
+                            if (rRaw) resZones = rRaw.split(/[,;|]/).map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
+                        }
+                    }
+                    if (supZones.length === 0 && resZones.length === 0) return null;
+
+                    const parsePrice = (s: string) => {
+                        const m = s.match(/\$?([\d,.]+)/);
+                        return m ? parseFloat(m[1].replace(',', '')) : null;
+                    };
+                    const allLevels: { price: number; label: string; type: 'R' | 'S' }[] = [];
+                    resZones.forEach((z: string) => { const p = parsePrice(z); if (p) allLevels.push({ price: p, label: z, type: 'R' }); });
+                    supZones.forEach((z: string) => { const p = parsePrice(z); if (p) allLevels.push({ price: p, label: z, type: 'S' }); });
+                    allLevels.sort((a, b) => b.price - a.price);
+                    const now = livePrice ?? 0;
+                    let insertIdx = allLevels.findIndex(l => l.price < now);
+                    if (insertIdx === -1) insertIdx = allLevels.length;
+
+                    return (
+                        <>
+                            {/* Collapsed tab */}
+                            <button
+                                onClick={() => setLadderOpen(!ladderOpen)}
+                                className={`absolute top-1/2 -translate-y-1/2 z-20 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[220px]' : 'left-0'
+                                    } w-6 h-16 rounded-r-lg bg-zinc-900/90 border border-l-0 border-white/10 hover:bg-zinc-800 text-zinc-400 hover:text-white backdrop-blur-sm`}
+                                title={ladderOpen ? 'Close price ladder' : 'Open price ladder'}
+                            >
+                                <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-300 ${ladderOpen ? 'rotate-180' : ''}`} />
+                            </button>
+
+                            {/* Expanded sidebar */}
+                            <div
+                                className={`absolute left-0 top-0 bottom-0 z-20 w-[220px] bg-zinc-950/95 backdrop-blur-md border-r border-white/10 rounded-l-xl overflow-y-auto transition-transform duration-300 ease-in-out ${ladderOpen ? 'translate-x-0' : '-translate-x-full'
+                                    }`}
+                            >
+                                <div className="px-3 py-2.5 border-b border-white/5 flex items-center gap-2">
+                                    <Activity className="w-3.5 h-3.5 text-violet-400" />
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Price Ladder</span>
+                                </div>
+                                <div className="py-1">
+                                    {allLevels.map((lvl, i) => (
+                                        <React.Fragment key={i}>
+                                            {i === insertIdx && now > 0 && (
+                                                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border-y border-emerald-500/30">
+                                                    <div className="w-1 h-4 rounded-full bg-emerald-400" />
+                                                    <span className="text-xs font-mono font-black text-emerald-400">
+                                                        ${now.toFixed(2)}
+                                                    </span>
+                                                    <span className="text-[8px] font-bold uppercase tracking-widest text-emerald-500/60">NOW</span>
+                                                </div>
+                                            )}
+                                            <div className={`flex items-center gap-2 px-3 py-1 ${lvl.type === 'R' ? 'hover:bg-rose-500/5' : 'hover:bg-violet-500/5'} transition-colors`}>
+                                                <div className={`w-1 h-3 rounded-full ${lvl.type === 'R' ? 'bg-rose-500/40' : 'bg-violet-500/40'}`} />
+                                                <span className={`text-xs font-mono font-bold ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'}`}>
+                                                    ${lvl.price.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </React.Fragment>
+                                    ))}
+                                    {insertIdx === allLevels.length && now > 0 && (
+                                        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border-t border-emerald-500/30">
+                                            <div className="w-1 h-4 rounded-full bg-emerald-400" />
+                                            <span className="text-xs font-mono font-black text-emerald-400">
+                                                ${now.toFixed(2)}
+                                            </span>
+                                            <span className="text-[8px] font-bold uppercase tracking-widest text-emerald-500/60">NOW</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </>
+                    );
+                })()}
             </div>
 
             {/* Data source note */}
             {chartError && (
                 <div className="text-[10px] text-amber-500/80 font-mono text-center">{chartError}</div>
             )}
-
-
-            {/* Price Ladder */}
-            {card && (() => {
-                // Primary source: technicalStructure
-                let supZones = parseZones(card.technicalStructure?.majorSupport);
-                let resZones = parseZones(card.technicalStructure?.majorResistance);
-
-                // Fallback: parse S_Levels/R_Levels from screener_briefing text
-                if (supZones.length === 0 || resZones.length === 0) {
-                    const briefing = typeof card.screener_briefing === 'string' ? card.screener_briefing : '';
-                    if (supZones.length === 0) {
-                        const sMatch = briefing.match(/(?:\*\*|__)?S[_\-\s]Levels?(?:\*\*|__)?[:\-\=]?\s*(?:\[([\s\S]*?)\]|([^\n\r]+))/i);
-                        const sRaw = sMatch ? (sMatch[1] || sMatch[2]) : '';
-                        if (sRaw) supZones = sRaw.split(/[,;|]/).map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
-                    }
-                    if (resZones.length === 0) {
-                        const rMatch = briefing.match(/(?:\*\*|__)?R[_\-\s]Levels?(?:\*\*|__)?[:\-\=]?\s*(?:\[([\s\S]*?)\]|([^\n\r]+))/i);
-                        const rRaw = rMatch ? (rMatch[1] || rMatch[2]) : '';
-                        if (rRaw) resZones = rRaw.split(/[,;|]/).map((s: string) => s.trim()).filter((s: string) => s && s !== 'None' && /\d/.test(s));
-                    }
-                }
-
-                if (supZones.length === 0 && resZones.length === 0) return null;
-
-                // Parse prices and build a sorted ladder
-                const parsePrice = (s: string) => {
-                    const m = s.match(/\$?([\d,.]+)/);
-                    return m ? parseFloat(m[1].replace(',', '')) : null;
-                };
-                const allLevels: { price: number; label: string; type: 'R' | 'S' }[] = [];
-                resZones.forEach((z: string) => { const p = parsePrice(z); if (p) allLevels.push({ price: p, label: z, type: 'R' }); });
-                supZones.forEach((z: string) => { const p = parsePrice(z); if (p) allLevels.push({ price: p, label: z, type: 'S' }); });
-                allLevels.sort((a, b) => b.price - a.price);
-
-                // Find where current price fits
-                const now = livePrice ?? 0;
-                let insertIdx = allLevels.findIndex(l => l.price < now);
-                if (insertIdx === -1) insertIdx = allLevels.length;
-
-                return (
-                    <div className="rounded-xl border border-white/10 overflow-hidden">
-                        <button
-                            onClick={() => setShowLevels(!showLevels)}
-                            className="w-full flex items-center justify-between px-4 py-2.5 bg-zinc-900/50 hover:bg-zinc-800/50 transition-colors cursor-pointer"
-                        >
-                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-400 font-sans">Price Ladder</span>
-                            <ChevronDown className={`w-4 h-4 text-zinc-500 transition-transform duration-300 ${showLevels ? 'rotate-180' : ''}`} />
-                        </button>
-                        {showLevels && (
-                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
-                                {allLevels.map((lvl, i) => (
-                                    <React.Fragment key={i}>
-                                        {/* Insert NOW row right before first level below price */}
-                                        {i === insertIdx && now > 0 && (
-                                            <div className="flex items-center gap-3 px-4 py-2 bg-emerald-500/10 border-y border-emerald-500/30">
-                                                <div className="w-1 h-5 rounded-full bg-emerald-400" />
-                                                <span className="text-sm font-mono font-black text-emerald-400">
-                                                    ${now.toFixed(2)}
-                                                </span>
-                                                <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/60 font-mono">NOW</span>
-                                            </div>
-                                        )}
-                                        <div className={`flex items-center gap-3 px-4 py-1.5 ${lvl.type === 'R' ? 'hover:bg-rose-500/5' : 'hover:bg-violet-500/5'
-                                            } transition-colors`}>
-                                            <div className={`w-1 h-4 rounded-full ${lvl.type === 'R' ? 'bg-rose-500/40' : 'bg-violet-500/40'}`} />
-                                            <span className={`text-sm font-mono font-bold w-20 ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'
-                                                }`}>
-                                                ${lvl.price.toFixed(2)}
-                                            </span>
-                                            <span className="text-xs text-zinc-500 font-mono truncate">
-                                                {lvl.label.replace(/\$?[\d,.]+\s*/, '').replace(/^\(/, '').replace(/\)$/, '')}
-                                            </span>
-                                        </div>
-                                    </React.Fragment>
-                                ))}
-                                {/* NOW row at bottom if price is below all levels */}
-                                {insertIdx === allLevels.length && now > 0 && (
-                                    <div className="flex items-center gap-3 px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30">
-                                        <div className="w-1 h-5 rounded-full bg-emerald-400" />
-                                        <span className="text-sm font-mono font-black text-emerald-400">
-                                            ${now.toFixed(2)}
-                                        </span>
-                                        <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-500/60 font-mono">NOW</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            })()}
 
             {/* Plan Level Cards */}
             <div className="grid grid-cols-2 gap-3">
