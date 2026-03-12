@@ -198,7 +198,7 @@ export default function ChartPlanView({
                     rightOffset: 5,
                     barSpacing: 12,
                 },
-                width: chartContainerRef.current.clientWidth,
+                width: chartContainerRef.current.clientWidth - 2,
                 height: document.fullscreenElement ? (chartContainerRef.current.clientHeight || 500) : 500,
             });
 
@@ -363,7 +363,7 @@ export default function ChartPlanView({
             // Resize handler — updates both width and height for fullscreen support
             const handleResize = () => {
                 if (chartContainerRef.current) {
-                    const w = chartContainerRef.current.clientWidth;
+                    const w = chartContainerRef.current.clientWidth - 2; // 2px buffer to prevent price scale clipping
                     const inFullscreen = !!document.fullscreenElement;
                     const h = inFullscreen ? (chartContainerRef.current.clientHeight || 500) : 500;
                     chart.applyOptions({ width: w, height: h });
