@@ -236,9 +236,15 @@ export default function ChartPlanView({
                     scaleMargins: { top: 0, bottom: 0 },
                 });
 
-                // Show candles proportional to chart width (approx 1 candle per 10px)
+                // Show candles proportional to chart width, but adjusted for session density
+                // RTH needs more candles visible to make them thinner
+                // ETH needs fewer candles visible to make them thicker
                 const chartWidth = chartContainerRef.current?.clientWidth || 800;
-                const visibleBars = Math.floor(chartWidth / 10);
+                let divisor = 10;
+                if (session === 'RTH') divisor = 7;  // More bars visible = thinner candles
+                if (session === 'ETH') divisor = 18; // Fewer bars visible = thicker candles
+                
+                const visibleBars = Math.floor(chartWidth / divisor);
                 const from = Math.max(0, bars.length - visibleBars);
                 chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 10 });
             } else {

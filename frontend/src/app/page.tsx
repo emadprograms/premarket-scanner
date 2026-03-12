@@ -349,7 +349,7 @@ export default function UnifiedCommandPage() {
       ) : (
         /* Ranked Cards Dashboard */
         <LayoutGroup>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5 min-[1920px]:grid-cols-6 gap-6 animate-in fade-in slide-in-from-right-4 duration-500">
+          <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 min-[1600px]:grid-cols-6 min-[1750px]:grid-cols-7 gap-6 animate-in fade-in slide-in-from-right-4 duration-500">
             {rankedData.map((item, i) => {
               const isBullish = /bull|long/i.test(item.prox_alert.Bias || "");
               const isBearish = /bear|short/i.test(item.prox_alert.Bias || "");
