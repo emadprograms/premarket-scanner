@@ -149,7 +149,7 @@ export default function ChartPlanView({
                     timeVisible: true,
                     secondsVisible: false,
                     rightOffset: 15,
-                    barSpacing: 20, // Fat candles
+                    barSpacing: 8,
                 },
                 width: chartContainerRef.current.clientWidth,
                 height: 500,
@@ -236,8 +236,10 @@ export default function ChartPlanView({
                     scaleMargins: { top: 0, bottom: 0 },
                 });
 
-                // Show only the last ~60 bars so barSpacing stays fat
-                const from = Math.max(0, bars.length - 60);
+                // Show candles proportional to chart width (approx 1 candle per 10px)
+                const chartWidth = chartContainerRef.current?.clientWidth || 800;
+                const visibleBars = Math.floor(chartWidth / 10);
+                const from = Math.max(0, bars.length - visibleBars);
                 chart.timeScale().setVisibleLogicalRange({ from, to: bars.length + 10 });
             } else {
                 setChartError(`${dataSource === 'yahoo' ? 'Yahoo Finance' : 'Capital.com'} data unavailable — showing estimated levels`);
