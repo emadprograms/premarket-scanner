@@ -159,72 +159,15 @@ export default function Shell({ children }: ShellProps) {
                                 </span>
                             </div>
 
-                            {settings.workstation === 'Scanner' && (
-                                <div className="flex items-center gap-6 border-l border-border pl-4">
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex items-center gap-1 group relative">
-                                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest cursor-default">Capital</span>
-                                            <HelpCircle className="w-3 h-3 text-muted-foreground/50 hover:text-primary transition-colors cursor-help" />
-                                            <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-zinc-900 border border-white/10 rounded-lg text-[10px] leading-relaxed text-zinc-300 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 z-50 shadow-xl">
-                                                <div className="font-black text-white mb-1 uppercase tracking-widest">Base Capital</div>
-                                                Your total trading account size. Used to calculate exactly how many shares you should buy based on your selected Risk %.
-                                            </div>
-                                        </div>
-                                        <div className="relative flex items-center group/input rounded bg-muted/30 border border-border focus-within:border-primary/50 transition-colors">
-                                            <span className="pl-2 pr-1 text-[10px] text-muted-foreground font-mono">$</span>
-                                            <input
-                                                type="number"
-                                                value={settings.accountAmount || 10000}
-                                                onChange={(e) => updateSettings({ accountAmount: Number(e.target.value) })}
-                                                className="w-16 bg-transparent py-0.5 text-[11px] font-mono focus:outline-none transition-colors"
-                                            />
-                                            <div className="flex flex-col border-l border-border w-4 justify-center items-center">
-                                                <button onClick={() => adjustCapital(500)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 border-b border-border transition-colors">
-                                                    <ChevronUp className="w-2.5 h-2.5" />
-                                                </button>
-                                                <button onClick={() => adjustCapital(-500)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 transition-colors">
-                                                    <ChevronDown className="w-2.5 h-2.5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex items-center gap-1 group relative">
-                                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest cursor-default">Risk</span>
-                                            <HelpCircle className="w-3 h-3 text-muted-foreground/50 hover:text-primary transition-colors cursor-help" />
-                                            <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 p-2.5 bg-zinc-900 border border-white/10 rounded-lg text-[10px] leading-relaxed text-zinc-300 opacity-0 group-hover:opacity-100 pointer-events-none transition-all duration-300 z-50 shadow-xl">
-                                                <div className="font-black text-white mb-1 uppercase tracking-widest">Risk Tolerance</div>
-                                                The percentage of your total capital you are willing to lose if the trade invalidates (stops out). Common values are 0.5% - 2.0%.
-                                            </div>
-                                        </div>
-                                        <div className="relative flex items-center group/input rounded bg-muted/30 border border-border focus-within:border-primary/50 transition-colors">
-                                            <input
-                                                type="number"
-                                                step="0.1"
-                                                value={settings.riskPercentage || 1}
-                                                onChange={(e) => updateSettings({ riskPercentage: Number(e.target.value) })}
-                                                className="w-10 bg-transparent py-0.5 pl-2 text-[11px] font-mono focus:outline-none transition-colors"
-                                            />
-                                            <span className="pr-1 text-[10px] text-muted-foreground font-mono">%</span>
-                                            <div className="flex flex-col border-l border-border w-4 justify-center items-center">
-                                                <button onClick={() => adjustRisk(0.1)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 border-b border-border transition-colors">
-                                                    <ChevronUp className="w-2.5 h-2.5" />
-                                                </button>
-                                                <button onClick={() => adjustRisk(-0.1)} className="h-1/2 w-full flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-white/5 transition-colors">
-                                                    <ChevronDown className="w-2.5 h-2.5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+
+
 
                             {/* Chart Defaults Gear */}
                             <div className="relative border-l border-border pl-4">
                                 <button
                                     onClick={() => setChartDefaultsOpen(prev => !prev)}
                                     className={`p-1.5 rounded-lg transition-all duration-200 ${chartDefaultsOpen ? 'bg-violet-500/20 text-violet-400' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}
-                                    title="Chart session defaults"
+                                    title="Session settings"
                                 >
                                     <Settings className={`w-4 h-4 transition-transform duration-300 ${chartDefaultsOpen ? 'rotate-90' : ''}`} />
                                 </button>
@@ -233,7 +176,7 @@ export default function Shell({ children }: ShellProps) {
                                     <>
                                         <div className="fixed inset-0 z-40" onClick={() => setChartDefaultsOpen(false)} />
                                         <div className="absolute top-full mt-2 right-0 z-50 w-64 p-3 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl shadow-black/50">
-                                            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Chart Session Defaults</div>
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Chart Defaults</div>
 
                                             {/* Data Source */}
                                             <div className="mb-2.5">
@@ -296,7 +239,7 @@ export default function Shell({ children }: ShellProps) {
                                             </div>
 
                                             {/* VP Toggle */}
-                                            <div className="flex items-center justify-between">
+                                            <div className="flex items-center justify-between mb-3">
                                                 <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Volume Profile</span>
                                                 <button
                                                     onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, vpEnabled: !settings.chartDefaults.vpEnabled } })}
@@ -308,6 +251,57 @@ export default function Shell({ children }: ShellProps) {
                                                 >
                                                     {settings.chartDefaults.vpEnabled ? 'ON' : 'OFF'}
                                                 </button>
+                                            </div>
+
+                                            {/* Divider */}
+                                            <div className="border-t border-white/5 mb-3" />
+
+                                            {/* Position Sizing Section */}
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Position Sizing</div>
+
+                                            {/* Capital */}
+                                            <div className="mb-2.5">
+                                                <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Base Capital</div>
+                                                <div className="flex items-center bg-zinc-800/50 rounded-lg border border-white/5">
+                                                    <span className="pl-2.5 pr-1 text-[10px] text-zinc-500 font-mono">$</span>
+                                                    <input
+                                                        type="number"
+                                                        value={settings.accountAmount || 10000}
+                                                        onChange={(e) => updateSettings({ accountAmount: Number(e.target.value) })}
+                                                        className="flex-1 bg-transparent py-1.5 text-[11px] font-mono text-white focus:outline-none"
+                                                    />
+                                                    <div className="flex flex-col border-l border-white/5 w-6">
+                                                        <button onClick={() => adjustCapital(500)} className="h-4 flex items-center justify-center text-zinc-500 hover:text-violet-400 hover:bg-white/5 border-b border-white/5 transition-colors">
+                                                            <ChevronUp className="w-2.5 h-2.5" />
+                                                        </button>
+                                                        <button onClick={() => adjustCapital(-500)} className="h-4 flex items-center justify-center text-zinc-500 hover:text-violet-400 hover:bg-white/5 transition-colors">
+                                                            <ChevronDown className="w-2.5 h-2.5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Risk */}
+                                            <div>
+                                                <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Risk Tolerance</div>
+                                                <div className="flex items-center bg-zinc-800/50 rounded-lg border border-white/5">
+                                                    <input
+                                                        type="number"
+                                                        step="0.1"
+                                                        value={settings.riskPercentage || 1}
+                                                        onChange={(e) => updateSettings({ riskPercentage: Number(e.target.value) })}
+                                                        className="flex-1 bg-transparent py-1.5 pl-2.5 text-[11px] font-mono text-white focus:outline-none"
+                                                    />
+                                                    <span className="pr-1 text-[10px] text-zinc-500 font-mono">%</span>
+                                                    <div className="flex flex-col border-l border-white/5 w-6">
+                                                        <button onClick={() => adjustRisk(0.1)} className="h-4 flex items-center justify-center text-zinc-500 hover:text-violet-400 hover:bg-white/5 border-b border-white/5 transition-colors">
+                                                            <ChevronUp className="w-2.5 h-2.5" />
+                                                        </button>
+                                                        <button onClick={() => adjustRisk(-0.1)} className="h-4 flex items-center justify-center text-zinc-500 hover:text-violet-400 hover:bg-white/5 transition-colors">
+                                                            <ChevronDown className="w-2.5 h-2.5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </>
