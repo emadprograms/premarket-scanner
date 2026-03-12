@@ -9,10 +9,23 @@ from backend.engine.capital_api import create_capital_session_v2
 
 log = logging.getLogger(__name__)
 
+# Constants — tunable keepalive parameters
+HEARTBEAT_INTERVAL = 25       # Seconds between proactive pings (Capital.com expects < 30s)
+TOKEN_MAX_AGE = 45 * 60       # Force reconnect after 45 min (tokens expire ~60 min)
+RECV_TIMEOUT = 30             # Seconds to wait for any message before fallback ping
+PING_RESPONSE_TIMEOUT = 10    # Seconds to wait for a pong after sending a ping
+
+
 class CapitalWebSocketService:
     """
     Singleton service that manages a persistent WebSocket connection to Capital.com.
     Aggregates BID/ASK prices for all watchlist tickers and broadcasts them.
+
+    Keepalive strategy:
+    - A background task sends a heartbeat ping every HEARTBEAT_INTERVAL seconds,
+      regardless of whether data is flowing.
+    - Ping responses are validated — any error or auth failure forces a full reconnect.
+    - Tokens older than TOKEN_MAX_AGE trigger a proactive reconnect before they expire.
     """
     _instance = None
     URL = "wss://api-streaming-capital.backend-capital.com/connect"
@@ -33,9 +46,11 @@ class CapitalWebSocketService:
         self.xst = None
         self._lock = asyncio.Lock()
         self._epic_to_ticker: Dict[str, str] = {}
-        self._pending_tickers: Set[str] = set()  # Tickers queued before WS is ready
+        self._pending_tickers: Set[str] = set()
         self._update_count = 0
         self.on_price_update = None
+        self._auth_time: float = 0  # Epoch when tokens were last obtained
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     async def start(self):
         """Starts the background connection task."""
@@ -46,6 +61,8 @@ class CapitalWebSocketService:
 
     async def stop(self):
         self.running = False
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
         if self.ws:
             await self.ws.close()
 
@@ -61,6 +78,96 @@ class CapitalWebSocketService:
         else:
             log.info(f"Capital WS: Queued {len(tickers)} tickers (WS will connect when ready)")
 
+    def _tokens_expired(self) -> bool:
+        """Check if the current tokens are older than TOKEN_MAX_AGE."""
+        if self._auth_time == 0:
+            return True
+        return (time.time() - self._auth_time) > TOKEN_MAX_AGE
+
+    # ------------------------------------------------------------------
+    # Heartbeat Task
+    # ------------------------------------------------------------------
+    async def _heartbeat_loop(self):
+        """
+        Proactive keepalive: sends a ping every HEARTBEAT_INTERVAL seconds
+        regardless of whether data is flowing. Validates the response.
+        """
+        while self.running and self.ws:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+            if not self.ws or not self.running:
+                break
+
+            # Token age check — force reconnect before they silently expire
+            if self._tokens_expired():
+                log.warning(f"Capital WS: Tokens are {int((time.time() - self._auth_time) / 60)}min old. "
+                            f"Forcing reconnect for fresh auth.")
+                try:
+                    await self.ws.close()
+                except Exception:
+                    pass
+                break
+
+            # Send proactive ping
+            try:
+                await self.ws.send(json.dumps({
+                    "destination": "ping",
+                    "correlationId": "HEARTBEAT",
+                    "cst": self.cst,
+                    "securityToken": self.xst,
+                }))
+                response_raw = await asyncio.wait_for(self.ws.recv(), timeout=PING_RESPONSE_TIMEOUT)
+                response = json.loads(response_raw) if isinstance(response_raw, str) else {}
+
+                # Validate – check for error indicators in the response
+                dest = response.get("destination", "")
+                status = str(response.get("status", "")).lower()
+                payload = response.get("payload", {})
+                error_code = str(payload.get("errorCode", "")).lower() if isinstance(payload, dict) else ""
+
+                is_error = (
+                    "error" in dest.lower()
+                    or "error" in status
+                    or "invalid" in error_code
+                    or "unauthorized" in error_code
+                    or "expired" in error_code
+                    or status in ("401", "403")
+                )
+
+                if is_error:
+                    log.warning(f"Capital WS: Heartbeat rejected (dest={dest}, status={status}, "
+                                f"errorCode={error_code}). Forcing reconnect...")
+                    from backend.engine.capital_api import clear_capital_session
+                    clear_capital_session()
+                    try:
+                        await self.ws.close()
+                    except Exception:
+                        pass
+                    break
+                else:
+                    log.debug("Capital WS: Heartbeat OK.")
+
+            except asyncio.TimeoutError:
+                log.warning("Capital WS: Heartbeat response timed out. Forcing reconnect...")
+                try:
+                    await self.ws.close()
+                except Exception:
+                    pass
+                break
+            except websockets.exceptions.ConnectionClosed:
+                log.warning("Capital WS: Connection closed during heartbeat. Will reconnect.")
+                break
+            except Exception as e:
+                log.warning(f"Capital WS: Heartbeat failed ({e}). Forcing reconnect...")
+                try:
+                    await self.ws.close()
+                except Exception:
+                    pass
+                break
+
+    # ------------------------------------------------------------------
+    # Main Connection Loop
+    # ------------------------------------------------------------------
     async def _run_loop(self):
         reconnect_delay = 5  # Start at 5s, increase on repeated failures
         max_reconnect_delay = 60
@@ -81,12 +188,16 @@ class CapitalWebSocketService:
                     await asyncio.sleep(10)
                     continue
 
+                self._auth_time = time.time()  # Record when we got fresh tokens
                 log.info("Capital WS: Auth OK. Connecting to stream...")
                 async with websockets.connect(self.URL) as websocket:
                     self.ws = websocket
                     log.info("✅ Capital WS: Connected.")
                     reconnect_delay = 5  # Reset backoff on successful connection
-                    
+
+                    # Start the proactive heartbeat background task
+                    self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
                     # Subscribe to any pending tickers
                     if self._pending_tickers or self.tickers:
                         await self._sync_subscriptions()
@@ -94,35 +205,30 @@ class CapitalWebSocketService:
                     # Listen for updates
                     while self.running:
                         try:
-                            message = await asyncio.wait_for(self.ws.recv(), timeout=30)
+                            message = await asyncio.wait_for(self.ws.recv(), timeout=RECV_TIMEOUT)
                             data = json.loads(message)
                             await self._handle_message(data)
                         except asyncio.TimeoutError:
-                            # No data in 30s — send application-level ping with auth tokens
+                            # No data in RECV_TIMEOUT — this is fine, the heartbeat task
+                            # handles keepalive independently. Just loop back to recv().
                             if not self.subscriptions:
                                 log.info("Capital WS: No active subscriptions. Idling...")
-                                continue
-                            log.warning("Capital WS: No data received in 30s. Sending app-level ping...")
-                            try:
-                                await self.ws.send(json.dumps({
-                                    "destination": "ping",
-                                    "correlationId": "PING",
-                                    "cst": self.cst,
-                                    "securityToken": self.xst,
-                                }))
-                                # Wait briefly for pong response
-                                await asyncio.wait_for(self.ws.recv(), timeout=10)
-                                log.info("Capital WS: Ping OK.")
-                            except Exception:
-                                log.warning("Capital WS: Ping failed. Clearing stale session, reconnecting...")
-                                # Force token refresh on next reconnect
-                                from backend.engine.capital_api import clear_capital_session
-                                clear_capital_session()
-                                break  # Exit inner loop to reconnect
+                            continue
+                        except websockets.exceptions.ConnectionClosed:
+                            log.warning("Capital WS: Connection closed by server.")
+                            break
 
             except Exception as e:
                 log.error(f"Capital WS Error: {e}. Reconnecting in {reconnect_delay}s...")
             finally:
+                # Clean up heartbeat task
+                if self._heartbeat_task and not self._heartbeat_task.done():
+                    self._heartbeat_task.cancel()
+                    try:
+                        await self._heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
+                self._heartbeat_task = None
                 self.ws = None
                 self.subscriptions.clear()
                 if self.running:

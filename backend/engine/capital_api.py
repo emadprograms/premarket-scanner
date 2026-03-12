@@ -17,7 +17,7 @@ def get_retry_session():
 
 # Manual Singleton Cache for FastAPI/Non-Streamlit environments
 _CAPITAL_SESSION_CACHE = {"cst": None, "xst": None, "expiry": None}
-_SESSION_TTL_SECONDS = 8 * 60  # Refresh tokens every 8 minutes (Capital.com sessions last ~10 min)
+_SESSION_TTL_SECONDS = 50 * 60  # Refresh tokens every 50 min (Capital.com sessions last ~60 min)
 
 def create_capital_session_v2():
     """Creates a Capital.com session and caches tokens using Infisical."""
