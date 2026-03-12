@@ -175,7 +175,7 @@ export default function Shell({ children }: ShellProps) {
                                 {chartDefaultsOpen && (
                                     <>
                                         <div className="fixed inset-0 z-40" onClick={() => setChartDefaultsOpen(false)} />
-                                        <div className="absolute top-full mt-2 right-0 z-50 w-64 p-3 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl shadow-black/50">
+                                        <div className="absolute top-full mt-2 left-0 z-50 w-64 p-3 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl shadow-black/50">
                                             <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Chart Defaults</div>
 
                                             {/* Data Source */}
