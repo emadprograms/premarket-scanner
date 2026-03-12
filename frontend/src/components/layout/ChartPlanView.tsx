@@ -198,7 +198,7 @@ export default function ChartPlanView({
                     barSpacing: 12, // Fixed candle width — consistent across all timeframes/sessions
                 },
                 width: chartContainerRef.current.clientWidth,
-                height: 500,
+                height: document.fullscreenElement ? (chartContainerRef.current.clientHeight || 500) : 500,
             });
 
             const series = chart.addSeries(CandlestickSeries, {
