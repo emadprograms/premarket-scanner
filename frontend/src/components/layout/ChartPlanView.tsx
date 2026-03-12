@@ -448,9 +448,9 @@ export default function ChartPlanView({
 
                 const isPOC = i === pocIdx;
                 if (isPOC) {
-                    ctx.fillStyle = `rgba(251, 191, 36, 0.35)`; // Amber POC
+                    ctx.fillStyle = `rgba(251, 191, 36, 0.60)`; // Amber POC
                 } else {
-                    ctx.fillStyle = `rgba(139, 92, 246, ${0.08 + normalizedVol * 0.17})`;
+                    ctx.fillStyle = `rgba(139, 92, 246, ${0.20 + normalizedVol * 0.35})`;
                 }
                 ctx.fillRect(0, y, barWidth, barHeight);
             }
