@@ -434,6 +434,7 @@ class TestYahooProcessing:
             'Open': [100, 100, 101], 'High': [105, 105, 106],
             'Low': [95, 95, 96], 'Close': [102, 102, 103]
         }, index=dates)
+        mock_df.index.name = 'Datetime'
         mock_yf.download.return_value = mock_df
 
         result = get_live_bars_from_yahoo(ticker="AAPL", days=1, resolution="MINUTE_5")
@@ -452,6 +453,7 @@ class TestYahooProcessing:
             'Open': [102, 100, 101], 'High': [107, 105, 106],
             'Low': [97, 95, 96], 'Close': [104, 102, 103]
         }, index=dates)
+        mock_df.index.name = 'Datetime'
         mock_yf.download.return_value = mock_df
 
         result = get_live_bars_from_yahoo(ticker="AAPL", days=1, resolution="MINUTE_5")
