@@ -12,6 +12,8 @@ import {
     ShieldAlert,
     Activity,
     Crosshair,
+    Maximize2,
+    Minimize2,
 } from 'lucide-react';
 
 // Module-level constants (never re-created on render)
@@ -65,9 +67,11 @@ export default function ChartPlanView({
     const cleanupRef = useRef<(() => void) | null>(null);
     const vpCleanupRef = useRef<(() => void) | null>(null);
     const vpCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const chartWrapperRef = useRef<HTMLDivElement | null>(null);
     const [chartLoading, setChartLoading] = useState(true);
     const [chartError, setChartError] = useState<string | null>(null);
     const [barCount, setBarCount] = useState(0);
+    const [isFullscreen, setIsFullscreen] = useState(false);
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
     const [showLevels, setShowLevels] = useState(true);
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
@@ -85,6 +89,22 @@ export default function ChartPlanView({
             return next;
         });
     };
+
+    const toggleFullscreen = () => {
+        if (!chartWrapperRef.current) return;
+        if (!document.fullscreenElement) {
+            chartWrapperRef.current.requestFullscreen().catch(() => {});
+        } else {
+            document.exitFullscreen().catch(() => {});
+        }
+    };
+
+    // Track fullscreen state changes (including Esc key exits)
+    useEffect(() => {
+        const handleFSChange = () => setIsFullscreen(!!document.fullscreenElement);
+        document.addEventListener('fullscreenchange', handleFSChange);
+        return () => document.removeEventListener('fullscreenchange', handleFSChange);
+    }, []);
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -611,17 +631,25 @@ export default function ChartPlanView({
             </div>
 
             {/* Chart */}
-            <div className="relative">
+            <div ref={chartWrapperRef} className={`relative ${isFullscreen ? 'bg-zinc-950 p-4' : ''}`}>
                 <canvas
                     ref={vpCanvasRef}
-                    className="absolute left-0 top-0 z-10 pointer-events-none"
+                    className={`absolute ${isFullscreen ? 'left-4 top-4' : 'left-0 top-0'} z-10 pointer-events-none`}
                     style={{ borderRadius: '0.75rem 0 0 0.75rem' }}
                 />
                 <div
                     ref={chartContainerRef}
                     className="w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950"
-                    style={{ minHeight: 500 }}
+                    style={{ minHeight: isFullscreen ? 'calc(100vh - 2rem)' : 500 }}
                 />
+                {/* Fullscreen toggle */}
+                <button
+                    onClick={toggleFullscreen}
+                    className="absolute top-2 right-2 z-20 p-1.5 rounded-lg bg-zinc-900/80 border border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                    title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                >
+                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
                 {chartLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 rounded-xl border border-white/10" style={{ minHeight: 500 }}>
                         <div className="relative mb-4">

@@ -148,9 +148,32 @@ The archive API returns cards with these exact field names — the frontend comp
 - **Decision: ETH/RTH Session Toggle**: ETH/RTH pill toggle next to timeframe pills. Default ETH. RTH filters bars outside 9:30 AM – 4:00 PM ET using `hourCycle: 'h23'` for DST-safe offset. Skipped for `DAY` resolution. Falls back to ETH if filter removes all bars.
 - **Decision: Yahoo Finance Data Pipeline**: Uses `multi_level_index=False` and `auto_adjust=True` for clean flat columns from yfinance 0.2.x. `prepost=True` only for intraday intervals (1m, 5m, 15m, 30m). Fallback timestamp detection if index name is neither `Datetime` nor `Date`. Naive timestamps localized to US/Eastern before UTC conversion. Bars deduplicated and sorted chronologically. HOUR_4 maps to `4h` interval with 730-day lookback.
 - **Decision: Volume Profile**: Canvas-based horizontal bar overlay on the left of the chart. Toggleable "VP" button in its own pill group (after ETH/RTH). Buckets visible bars into 70 price levels, distributes volume proportionally across each bar's High-Low range. Rendered via HTML canvas using `priceToCoordinate()` for Y mapping. All purple with varying opacity; POC (Point of Control) in amber. Dynamically recalculates on scroll/zoom via `subscribeVisibleLogicalRangeChange`. Volume data passed through both Capital.com and Yahoo bar endpoints.
+- **Decision: Fullscreen Chart**: Browser Fullscreen API (`requestFullscreen`/`exitFullscreen`). Maximize2/Minimize2 icon in top-right of chart area. Chart height becomes `calc(100vh - 2rem)` in fullscreen. State tracked via `fullscreenchange` event listener (handles Esc key). VP canvas position adjusts for fullscreen padding.
 ## 9. The Data Pipeline
 1.  **Load**: Fetch all active tickers from `aw_ticker_notes` in Turso.
 2.  **Stream**: Connect to Capital.com WebSockets for live BID/ASK prices.
 3.  **Calculate**: Continuously re-calculate the "Tradability Score" (Proximity) for every ticker.
 4.  **Sort**: Re-order the UI cards in real-time as prices move.
 5.  **Persist**: Economy cards are saved to both local cache and `aw_economy_cards` table on generation.
+
+# Premarket Scanner AI Updates
+
+## 2026-03-12 (Discord Bot Error Handling Improvements)
+
+Improved the resilience and error handling of the Discord bot (`discord_bot/bot.py`) to prevent it from crashing gracefully during transient Discord server outages or GitHub API failures.
+
+### Changes Made
+1. **`discord_retry()` Helper Function:**
+   - Added a generic retry wrapper for Discord API calls (`ctx.send`, `msg.edit`) on 5xx errors (e.g. 503 Service Unavailable).
+   - Retries up to 3 times with exponential backoff (2s → 4s → give up).
+
+2. **Global Error Handler (`on_command_error`):**
+   - Implemented a Catch-all error handler for unhandled command exceptions.
+   - Distinguishes between:
+     - `discord.DiscordServerError` (Discord server outage) -> informs users it's a Discord server issue, not a bot bug.
+     - `aiohttp.ClientError` (Network error) -> informs users it's an external service reachability issue.
+     - `commands.MissingRequiredArgument` / `commands.BadArgument`.
+
+3. **Accurate Command Output Messaging:**
+   - Replaced generic `⚠️ Internal Error: Could not reach GitHub` with more specific errors differentiating GitHub API issues from Discord send failures in the `!turnon`, `!turnoff` and `!status` commands.
+   - All visual feedback logic wraps sending messages with the new retry helper so the bot reliably survives transient connection drops.
