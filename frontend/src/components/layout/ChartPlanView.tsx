@@ -703,10 +703,10 @@ export default function ChartPlanView({
 
                     return (
                         <>
-                            {/* Collapsed tab */}
+                            {/* Sidebar toggle tab — on the right edge of the sidebar */}
                             <button
                                 onClick={() => setLadderOpen(!ladderOpen)}
-                                className={`absolute top-1/2 -translate-y-1/2 z-20 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[220px]' : 'left-0'
+                                className={`absolute top-1/2 -translate-y-1/2 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[220px]' : 'left-0'
                                     } w-6 h-16 rounded-r-lg bg-zinc-900/90 border border-l-0 border-white/10 hover:bg-zinc-800 text-zinc-400 hover:text-white backdrop-blur-sm`}
                                 title={ladderOpen ? 'Close price ladder' : 'Open price ladder'}
                             >
@@ -736,8 +736,11 @@ export default function ChartPlanView({
                                             )}
                                             <div className={`flex items-center gap-2 px-3 py-1 ${lvl.type === 'R' ? 'hover:bg-rose-500/5' : 'hover:bg-violet-500/5'} transition-colors`}>
                                                 <div className={`w-1 h-3 rounded-full ${lvl.type === 'R' ? 'bg-rose-500/40' : 'bg-violet-500/40'}`} />
-                                                <span className={`text-xs font-mono font-bold ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'}`}>
+                                                <span className={`text-xs font-mono font-bold w-16 ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'}`}>
                                                     ${lvl.price.toFixed(2)}
+                                                </span>
+                                                <span className="text-[10px] text-zinc-500 font-mono truncate">
+                                                    {lvl.label.replace(/\$?[\d,.]+\s*/, '').replace(/^\(/, '').replace(/\)$/, '')}
                                                 </span>
                                             </div>
                                         </React.Fragment>
