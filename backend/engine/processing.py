@@ -191,18 +191,54 @@ def get_live_bars_from_capital(ticker: str, client=None, days: int = 5, logger: 
 def get_live_bars_from_yahoo(ticker: str, days: int = 5, resolution: str = "MINUTE_5", logger: AppLogger = None) -> Optional[pd.DataFrame]:
     """Fallback: Fetches data from Yahoo Finance."""
     try:
-        # Map resolution to YF interval
-        interval = "5m" if resolution == "MINUTE_5" else "1m" if resolution == "MINUTE_1" else "1h"
-        
-        # YFinance tickers for indices might differ (e.g. ^GSPC for SPY? No SPY is SPY).
-        # VIX is ^VIX. 
+        # Map resolution to YF interval and enforce lookback limits
+        interval_map = {
+            "MINUTE": "1m",
+            "MINUTE_1": "1m",
+            "MINUTE_5": "5m",
+            "MINUTE_15": "15m",
+            "MINUTE_30": "30m",
+            "HOUR": "1h",
+            "DAY": "1d",
+        }
+        interval = interval_map.get(resolution.upper(), "5m")
+
+        # YF lookback limits per interval
+        max_days_map = {
+            "1m": 7,
+            "5m": 60,
+            "15m": 60,
+            "30m": 60,
+            "1h": 730,
+            "1d": 3650,
+        }
+        max_days = max_days_map.get(interval, 60)
+        days = min(days, max_days)
+
+        # Map requested days to valid YF period
+        if days <= 1:
+            yf_period = "1d"
+        elif days <= 5:
+            yf_period = "5d"
+        elif days <= 30:
+            yf_period = "1mo"
+        elif days <= 90:
+            yf_period = "3mo"
+        elif days <= 180:
+            yf_period = "6mo"
+        elif days <= 365:
+            yf_period = "1y"
+        elif days <= 730:
+            yf_period = "2y"
+        else:
+            yf_period = "max"
+
+        # YFinance tickers for indices might differ
         yf_ticker = ticker
         if ticker == "BTCUSDT": yf_ticker = "BTC-USD"
         elif ticker == "EURUSDT": yf_ticker = "EURUSD=X"
         elif ticker == "CL=F": yf_ticker = "CL=F"
-        
-        # Map requested days to valid YF period (1d, 5d, 1mo, etc.)
-        yf_period = "1d" if days <= 1 else "5d"
+
         df = yf.download(yf_ticker, period=yf_period, interval=interval, progress=False, ignore_tz=False, prepost=True)
         
         if df.empty:

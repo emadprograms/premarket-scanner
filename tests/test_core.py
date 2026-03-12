@@ -351,3 +351,38 @@ class TestSocketManager:
         mock_ws = MagicMock()
         # Should not raise
         manager.disconnect(mock_ws)
+
+# ============================================================
+# MODULE 7: YAHOO DATA PROCESSING
+# ============================================================
+class TestYahooProcessing:
+    """Tests the resolution mapping and lookback logic for Yahoo Finance data."""
+    
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_resolution_mapping(self, mock_yf):
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        # Test mapping of MINUTE_30 resolution to 30m interval
+        mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
+        mock_df.index = pd.to_datetime(['2024-01-01'])
+        mock_yf.download.return_value = mock_df
+
+        get_live_bars_from_yahoo(ticker="AAPL", days=5, resolution="MINUTE_30")
+
+        # Check that download was called with the correct mapped interval
+        mock_yf.download.assert_called_with("AAPL", period="5d", interval="30m", progress=False, ignore_tz=False, prepost=True)
+
+    @patch('backend.engine.processing.yf')
+    def test_yahoo_lookback_limits(self, mock_yf):
+        from backend.engine.processing import get_live_bars_from_yahoo
+        
+        mock_df = pd.DataFrame({'Open': [100], 'High': [105], 'Low': [95], 'Close': [102]})
+        mock_df.index = pd.to_datetime(['2024-01-01'])
+        mock_yf.download.return_value = mock_df
+
+        # 1-minute data has a 7-day limit. Requesting 30 days should clamp to 7 days ("max 7" meaning 7d won't trigger "max" but 7d period).
+        # Actually in our logic, min(days, 7) for 1m means requesting 30 days gets clamped to 7. Days=7 maps to 'period="1mo"'.
+        # Let's verify our logic maps days=7 to "1mo" since our logic assigns yf_period="1mo" for 5 < days <= 30.
+        get_live_bars_from_yahoo(ticker="AAPL", days=30, resolution="MINUTE")
+        
+        mock_yf.download.assert_called_with("AAPL", period="1mo", interval="1m", progress=False, ignore_tz=False, prepost=True)

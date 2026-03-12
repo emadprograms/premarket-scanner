@@ -76,13 +76,13 @@ export const runSelectionScan = async (params: any) => {
     return data;
 };
 
-export const getChartBars = async (ticker: string, days: number = 1) => {
-    const { data } = await api.get(`/api/scanner/bars/${ticker}`, { params: { days }, timeout: 15000 });
+export const getChartBars = async (ticker: string, days: number = 1, resolution: string = 'MINUTE_5') => {
+    const { data } = await api.get(`/api/scanner/bars/${ticker}`, { params: { days, resolution }, timeout: 15000 });
     return data;
 };
 
-export const getYahooChartBars = async (ticker: string, days: number = 3) => {
-    const { data } = await api.get(`/api/scanner/bars/yahoo/${ticker}`, { params: { days }, timeout: 15000 });
+export const getYahooChartBars = async (ticker: string, days: number = 3, resolution: string = 'MINUTE_5') => {
+    const { data } = await api.get(`/api/scanner/bars/yahoo/${ticker}`, { params: { days, resolution }, timeout: 15000 });
     return data;
 };
 

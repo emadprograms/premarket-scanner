@@ -538,7 +538,7 @@ export default function UnifiedCommandPage() {
         title={`🔬 ${selectedTicker} — ${modalView === 'chart' ? 'Plan Levels' : modalView === 'briefing' ? 'Screener Briefing' : 'Full Card'}`}
         variant="default"
       >
-        <div className="space-y-4 max-h-[70vh] overflow-y-auto terminal-scroll pr-2 pt-4">
+        <div className="space-y-4 max-h-[85vh] overflow-y-auto terminal-scroll pr-2 pt-4">
           {selectedTicker && (() => {
             const item = rankedData.find(d => d.ticker === selectedTicker);
             if (!item) return (
@@ -549,6 +549,40 @@ export default function UnifiedCommandPage() {
             );
 
             if (modalView === 'chart') {
+              // Compute position size for display in popup
+              const cardData = item.card ? (typeof item.card === 'string' ? JSON.parse(item.card) : item.card) : null;
+              const isSupport = item.nature === 'SUPPORT';
+              let isLongTrade = isSupport;
+              const activePlan = cardData ? (item.nearestLevel === 'PLAN A' ? cardData.openingTradePlan : cardData.alternativePlan) : null;
+              if (activePlan?.planName) {
+                const pn = activePlan.planName.toLowerCase();
+                if (pn.includes('support') || pn.includes('long') || pn.includes('bull')) isLongTrade = true;
+                else if (pn.includes('resistance') || pn.includes('short') || pn.includes('bear')) isLongTrade = false;
+              }
+              const entryPrice = isLongTrade ? (item.liveAsk || item.livePrice) : (item.liveBid || item.livePrice);
+              let modalPositionSize: number | null = null;
+              if (item.hasPriceData && activePlan?.invalidation && !item.isBreached) {
+                const numMatches = activePlan.invalidation.match(/\d+\.?\d*/g);
+                if (numMatches && numMatches.length > 0) {
+                  let bestPrice = parseFloat(numMatches[0]);
+                  let bestDiff = Math.abs(entryPrice - bestPrice);
+                  for (let m = 1; m < numMatches.length; m++) {
+                    const p = parseFloat(numMatches[m]);
+                    const d = Math.abs(entryPrice - p);
+                    if (d < bestDiff) { bestDiff = d; bestPrice = p; }
+                  }
+                  const actualDistance = isLongTrade ? (entryPrice - bestPrice) : (bestPrice - entryPrice);
+                  if (actualDistance > 0) {
+                    const spread = (item.liveAsk && item.liveBid) ? Math.abs(item.liveAsk - item.liveBid) : 0;
+                    const distance = Math.max(actualDistance, spread);
+                    if (distance > 0 && settings.accountAmount && settings.riskPercentage) {
+                      const riskAmount = (settings.accountAmount * settings.riskPercentage) / 100;
+                      modalPositionSize = Math.floor(riskAmount / distance);
+                    }
+                  }
+                }
+              }
+
               return (
                 <ChartPlanView
                   ticker={selectedTicker}
@@ -562,6 +596,8 @@ export default function UnifiedCommandPage() {
                   setupBias={item.prox_alert?.Bias}
                   card={item.card}
                   onShowBriefing={() => setModalView('briefing')}
+                  positionSize={modalPositionSize}
+                  isBreached={item.isBreached}
                 />
               );
             }

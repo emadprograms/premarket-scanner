@@ -26,6 +26,8 @@ interface ChartPlanViewProps {
     setupBias?: string;
     card?: any;
     onShowBriefing?: () => void;
+    positionSize?: number | null;
+    isBreached?: boolean;
 }
 
 export default function ChartPlanView({
@@ -40,6 +42,8 @@ export default function ChartPlanView({
     setupBias,
     card,
     onShowBriefing,
+    positionSize,
+    isBreached,
 }: ChartPlanViewProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
@@ -47,9 +51,23 @@ export default function ChartPlanView({
     const [chartError, setChartError] = useState<string | null>(null);
     const [barCount, setBarCount] = useState(0);
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
-    const [showLevels, setShowLevels] = useState(false);
+    const [showLevels, setShowLevels] = useState(true);
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
+    const [resolution, setResolution] = useState('MINUTE_5');
+
+    // Lookback limits: { source: { resolution: days } }
+    const LOOKBACK: Record<string, Record<string, number>> = {
+        capital: { MINUTE: 1, MINUTE_5: 3, MINUTE_30: 14, HOUR: 31, DAY: 365 },
+        yahoo: { MINUTE: 7, MINUTE_5: 60, MINUTE_30: 60, HOUR: 730, DAY: 3650 },
+    };
+    const RESOLUTION_LABELS: { key: string; label: string }[] = [
+        { key: 'MINUTE', label: '1m' },
+        { key: 'MINUTE_5', label: '5m' },
+        { key: 'MINUTE_30', label: '30m' },
+        { key: 'HOUR', label: '1H' },
+        { key: 'DAY', label: '1D' },
+    ];
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -62,15 +80,16 @@ export default function ChartPlanView({
 
             // Fetch bars based on selected source
             let bars: any[] = [];
+            const days = LOOKBACK[dataSource]?.[resolution] || 3;
             try {
                 if (dataSource === 'yahoo') {
-                    const res = await getYahooChartBars(ticker, 3);
+                    const res = await getYahooChartBars(ticker, days, resolution);
                     if (res.status === 'success' && res.data?.bars?.length > 0) {
                         bars = res.data.bars;
                         setChartSource('yahoo');
                     }
                 } else {
-                    const res = await getChartBars(ticker, 1);
+                    const res = await getChartBars(ticker, days, resolution);
                     if (res.status === 'success' && res.data?.bars?.length > 0) {
                         bars = res.data.bars;
                         setChartSource('capital');
@@ -110,7 +129,7 @@ export default function ChartPlanView({
                     barSpacing: 20, // Fat candles
                 },
                 width: chartContainerRef.current.clientWidth,
-                height: 350,
+                height: 500,
             });
 
             const series = chart.addSeries(CandlestickSeries, {
@@ -294,7 +313,7 @@ export default function ChartPlanView({
                 (chartContainerRef.current as any).__cleanup();
             }
         };
-    }, [ticker, dataSource]);
+    }, [ticker, dataSource, resolution]);
 
     const bias = setupBias || 'Neutral';
     const isBullish = /bull|long/i.test(bias);
@@ -324,30 +343,51 @@ export default function ChartPlanView({
                             ${livePrice.toFixed(2)}
                         </span>
                     )}
-                    <div className="flex items-center gap-2">
-                        {barCount > 0 && (
-                            <span className="text-[9px] text-zinc-500 font-mono">{barCount} bars</span>
-                        )}
-                        <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
-                            <button
-                                onClick={() => setDataSource('capital')}
-                                className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'capital'
-                                    ? 'bg-violet-500/20 text-violet-400 shadow-sm'
-                                    : 'text-zinc-500 hover:text-zinc-300'
-                                    }`}
-                            >
-                                Capital
-                            </button>
-                            <button
-                                onClick={() => setDataSource('yahoo')}
-                                className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'yahoo'
-                                    ? 'bg-indigo-500/20 text-indigo-400 shadow-sm'
-                                    : 'text-zinc-500 hover:text-zinc-300'
-                                    }`}
-                            >
-                                Yahoo
-                            </button>
-                        </div>
+                </div>
+            </div>
+
+            {/* Timeframe + Data Source Row */}
+            <div className="flex items-center justify-between">
+                {/* Timeframe Selector — LEFT */}
+                <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                    {RESOLUTION_LABELS.map(({ key, label }) => (
+                        <button
+                            key={key}
+                            onClick={() => setResolution(key)}
+                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${resolution === key
+                                ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Data Source + Bar Count — RIGHT */}
+                <div className="flex items-center gap-2">
+                    {barCount > 0 && (
+                        <span className="text-[9px] text-zinc-500 font-mono">{barCount} bars</span>
+                    )}
+                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                        <button
+                            onClick={() => setDataSource('capital')}
+                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'capital'
+                                ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            Capital
+                        </button>
+                        <button
+                            onClick={() => setDataSource('yahoo')}
+                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'yahoo'
+                                ? 'bg-indigo-500/20 text-indigo-400 shadow-sm'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                        >
+                            Yahoo
+                        </button>
                     </div>
                 </div>
             </div>
@@ -359,7 +399,7 @@ export default function ChartPlanView({
                     className="w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950"
                 />
                 {chartLoading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 rounded-xl border border-white/10" style={{ minHeight: 350 }}>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 rounded-xl border border-white/10" style={{ minHeight: 500 }}>
                         <div className="relative mb-4">
                             <div className="w-12 h-12 rounded-full bg-violet-500/10 flex items-center justify-center">
                                 <svg className="w-6 h-6 text-violet-400 animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -381,6 +421,19 @@ export default function ChartPlanView({
             {chartError && (
                 <div className="text-[10px] text-amber-500/80 font-mono text-center">{chartError}</div>
             )}
+
+            {/* Position Size Row */}
+            {(positionSize !== null && positionSize !== undefined) || isBreached ? (
+                <div className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg bg-zinc-900/30 border border-white/5">
+                    <ArrowUpDown className="w-3.5 h-3.5 text-zinc-500" />
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Position Size:</span>
+                    {isBreached ? (
+                        <span className="text-sm font-mono font-bold text-zinc-400">N/A — Invalidated</span>
+                    ) : positionSize ? (
+                        <span className="text-sm font-mono font-bold text-violet-400">{positionSize} shares</span>
+                    ) : null}
+                </div>
+            ) : null}
 
             {/* Price Ladder */}
             {card && (() => {

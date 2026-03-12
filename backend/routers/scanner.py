@@ -167,14 +167,15 @@ async def run_proximity_scan(request: ScannerRequest):
 
 
 @router.get("/bars/{ticker}")
-async def get_chart_bars(ticker: str, days: int = 1):
+async def get_chart_bars(ticker: str, days: int = 1, resolution: str = "MINUTE_5"):
     """
     Fetch Capital.com bars for chart plotting.
-    Returns OHLC data for the requested ticker (default: last 16 hours / 1 day).
+    Returns OHLC data for the requested ticker.
+    Supported resolutions: MINUTE, MINUTE_5, MINUTE_30, HOUR, DAY.
     """
     try:
         turso = context.get_db()
-        df = get_live_bars_from_capital(ticker, client=turso, days=days, resolution="MINUTE_5")
+        df = get_live_bars_from_capital(ticker, client=turso, days=days, resolution=resolution)
         
         if df is None or df.empty:
             return GenericResponse(status="empty", message=f"No Capital.com data for {ticker}", data={"bars": []})
@@ -206,13 +207,14 @@ async def get_chart_bars(ticker: str, days: int = 1):
 
 
 @router.get("/bars/yahoo/{ticker}")
-async def get_yahoo_chart_bars(ticker: str, days: int = 3):
+async def get_yahoo_chart_bars(ticker: str, days: int = 3, resolution: str = "MINUTE_5"):
     """
     Fetch Yahoo Finance bars for chart plotting (Fallback/Weekend).
-    Returns OHLC data for the requested ticker (default: last 3 days).
+    Returns OHLC data for the requested ticker.
+    Supported resolutions: MINUTE, MINUTE_5, MINUTE_30, HOUR, DAY.
     """
     try:
-        df = get_live_bars_from_yahoo(ticker, days=days, resolution="MINUTE_5")
+        df = get_live_bars_from_yahoo(ticker, days=days, resolution=resolution)
         
         if df is None or df.empty:
             return GenericResponse(status="empty", message=f"No Yahoo Finance data for {ticker}", data={"bars": []})
