@@ -705,7 +705,7 @@ export default function ChartPlanView({
                             {/* Left sidebar toggle — top of chart */}
                             <button
                                 onClick={() => setLadderOpen(!ladderOpen)}
-                                className={`absolute top-2 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[160px]' : 'left-0'
+                                className={`absolute top-2 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[200px]' : 'left-0'
                                     } w-5 h-10 rounded-r-md bg-zinc-900/90 border border-l-0 border-white/10 hover:bg-zinc-800 text-zinc-400 hover:text-white backdrop-blur-sm`}
                                 title={ladderOpen ? 'Close price ladder' : 'Open price ladder'}
                             >
@@ -714,7 +714,7 @@ export default function ChartPlanView({
 
                             {/* Tight sidebar panel */}
                             <div
-                                className={`absolute left-0 top-0 bottom-0 z-20 w-[160px] bg-zinc-950/95 backdrop-blur-md border-r border-white/10 rounded-l-xl overflow-y-auto transition-transform duration-300 ease-in-out ${ladderOpen ? 'translate-x-0' : '-translate-x-full'
+                                className={`absolute left-0 top-0 z-20 w-[200px] bg-zinc-950/95 backdrop-blur-md border-r border-b border-white/10 rounded-tl-xl rounded-br-lg overflow-y-auto transition-transform duration-300 ease-in-out ${ladderOpen ? 'translate-x-0' : '-translate-x-full'
                                     }`}
                             >
                                 <div className="py-1">
