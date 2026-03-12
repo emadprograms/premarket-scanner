@@ -363,7 +363,8 @@ export default function ChartPlanView({
             const handleResize = () => {
                 if (chartContainerRef.current) {
                     const w = chartContainerRef.current.clientWidth;
-                    const h = chartContainerRef.current.clientHeight || 500;
+                    const inFullscreen = !!document.fullscreenElement;
+                    const h = inFullscreen ? (chartContainerRef.current.clientHeight || 500) : 500;
                     chart.applyOptions({ width: w, height: h });
                 }
             };
