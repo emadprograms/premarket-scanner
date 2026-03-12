@@ -14,6 +14,19 @@ import {
     Crosshair,
 } from 'lucide-react';
 
+// Module-level constants (never re-created on render)
+const LOOKBACK: Record<string, Record<string, number>> = {
+    capital: { MINUTE: 1, MINUTE_5: 3, MINUTE_30: 14, HOUR: 31, DAY: 365 },
+    yahoo:   { MINUTE: 7, MINUTE_5: 60, MINUTE_30: 60, HOUR: 730, DAY: 3650 },
+};
+const RESOLUTION_LABELS: { key: string; label: string }[] = [
+    { key: 'MINUTE', label: '1m' },
+    { key: 'MINUTE_5', label: '5m' },
+    { key: 'MINUTE_30', label: '30m' },
+    { key: 'HOUR', label: '1H' },
+    { key: 'DAY', label: '1D' },
+];
+
 interface ChartPlanViewProps {
     ticker: string;
     planALevel: number | null;
@@ -47,6 +60,7 @@ export default function ChartPlanView({
 }: ChartPlanViewProps) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
+    const cleanupRef = useRef<(() => void) | null>(null);
     const [chartLoading, setChartLoading] = useState(true);
     const [chartError, setChartError] = useState<string | null>(null);
     const [barCount, setBarCount] = useState(0);
@@ -55,19 +69,6 @@ export default function ChartPlanView({
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
     const [resolution, setResolution] = useState('MINUTE_5');
-
-    // Lookback limits: { source: { resolution: days } }
-    const LOOKBACK: Record<string, Record<string, number>> = {
-        capital: { MINUTE: 1, MINUTE_5: 3, MINUTE_30: 14, HOUR: 31, DAY: 365 },
-        yahoo: { MINUTE: 7, MINUTE_5: 60, MINUTE_30: 60, HOUR: 730, DAY: 3650 },
-    };
-    const RESOLUTION_LABELS: { key: string; label: string }[] = [
-        { key: 'MINUTE', label: '1m' },
-        { key: 'MINUTE_5', label: '5m' },
-        { key: 'MINUTE_30', label: '30m' },
-        { key: 'HOUR', label: '1H' },
-        { key: 'DAY', label: '1D' },
-    ];
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -297,8 +298,8 @@ export default function ChartPlanView({
             };
             window.addEventListener('resize', handleResize);
 
-            // Cleanup stored for unmount
-            (chartContainerRef.current as any).__cleanup = () => {
+            // Store cleanup in ref (not on DOM — DOM can detach on re-render)
+            cleanupRef.current = () => {
                 window.removeEventListener('resize', handleResize);
                 chart.remove();
                 chartRef.current = null;
@@ -309,8 +310,9 @@ export default function ChartPlanView({
 
         return () => {
             cancelled = true;
-            if ((chartContainerRef.current as any)?.__cleanup) {
-                (chartContainerRef.current as any).__cleanup();
+            if (cleanupRef.current) {
+                cleanupRef.current();
+                cleanupRef.current = null;
             }
         };
     }, [ticker, dataSource, resolution]);
@@ -397,6 +399,7 @@ export default function ChartPlanView({
                 <div
                     ref={chartContainerRef}
                     className="w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950"
+                    style={{ minHeight: 500 }}
                 />
                 {chartLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 rounded-xl border border-white/10" style={{ minHeight: 500 }}>
