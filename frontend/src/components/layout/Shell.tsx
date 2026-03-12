@@ -12,7 +12,8 @@ import {
     WifiOff,
     HelpCircle,
     ChevronUp,
-    ChevronDown
+    ChevronDown,
+    Settings
 } from 'lucide-react';
 import { useMission } from '@/lib/context';
 
@@ -25,6 +26,17 @@ export default function Shell({ children }: ShellProps) {
 
     const [time, setTime] = React.useState<string>('--:--:--');
     const [mounted, setMounted] = React.useState(false);
+    const [chartDefaultsOpen, setChartDefaultsOpen] = React.useState(false);
+
+    const RESOLUTION_OPTIONS = [
+        { key: 'MINUTE', label: '1m' },
+        { key: 'MINUTE_5', label: '5m' },
+        { key: 'MINUTE_15', label: '15m' },
+        { key: 'MINUTE_30', label: '30m' },
+        { key: 'HOUR', label: '1H' },
+        { key: 'HOUR_4', label: '4H' },
+        { key: 'DAY', label: '1D' },
+    ];
 
     useEffect(() => {
         setMounted(true);
@@ -206,6 +218,101 @@ export default function Shell({ children }: ShellProps) {
                                     </div>
                                 </div>
                             )}
+
+                            {/* Chart Defaults Gear */}
+                            <div className="relative border-l border-border pl-4">
+                                <button
+                                    onClick={() => setChartDefaultsOpen(prev => !prev)}
+                                    className={`p-1.5 rounded-lg transition-all duration-200 ${chartDefaultsOpen ? 'bg-violet-500/20 text-violet-400' : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}`}
+                                    title="Chart session defaults"
+                                >
+                                    <Settings className={`w-4 h-4 transition-transform duration-300 ${chartDefaultsOpen ? 'rotate-90' : ''}`} />
+                                </button>
+
+                                {chartDefaultsOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setChartDefaultsOpen(false)} />
+                                        <div className="absolute top-full mt-2 right-0 z-50 w-64 p-3 bg-zinc-900 border border-white/10 rounded-xl shadow-2xl shadow-black/50">
+                                            <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500 mb-3">Chart Session Defaults</div>
+
+                                            {/* Data Source */}
+                                            <div className="mb-2.5">
+                                                <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Data Source</div>
+                                                <div className="flex items-center bg-zinc-800/50 p-0.5 rounded-lg">
+                                                    {(['capital', 'yahoo'] as const).map(src => (
+                                                        <button
+                                                            key={src}
+                                                            onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, dataSource: src } })}
+                                                            className={`flex-1 px-2 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${
+                                                                settings.chartDefaults.dataSource === src
+                                                                    ? src === 'capital' ? 'bg-violet-500/20 text-violet-400' : 'bg-indigo-500/20 text-indigo-400'
+                                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {src}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Timeframe */}
+                                            <div className="mb-2.5">
+                                                <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Timeframe</div>
+                                                <div className="flex items-center bg-zinc-800/50 p-0.5 rounded-lg">
+                                                    {RESOLUTION_OPTIONS.map(({ key, label }) => (
+                                                        <button
+                                                            key={key}
+                                                            onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, resolution: key } })}
+                                                            className={`flex-1 px-1 py-1 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${
+                                                                settings.chartDefaults.resolution === key
+                                                                    ? 'bg-violet-500/20 text-violet-400'
+                                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Session */}
+                                            <div className="mb-2.5">
+                                                <div className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Session</div>
+                                                <div className="flex items-center bg-zinc-800/50 p-0.5 rounded-lg">
+                                                    {(['ETH', 'RTH'] as const).map(s => (
+                                                        <button
+                                                            key={s}
+                                                            onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, session: s } })}
+                                                            className={`flex-1 px-2 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${
+                                                                settings.chartDefaults.session === s
+                                                                    ? s === 'ETH' ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'
+                                                                    : 'text-zinc-500 hover:text-zinc-300'
+                                                            }`}
+                                                        >
+                                                            {s}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* VP Toggle */}
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Volume Profile</span>
+                                                <button
+                                                    onClick={() => updateSettings({ chartDefaults: { ...settings.chartDefaults, vpEnabled: !settings.chartDefaults.vpEnabled } })}
+                                                    className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
+                                                        settings.chartDefaults.vpEnabled
+                                                            ? 'bg-violet-500/20 text-violet-400'
+                                                            : 'bg-zinc-800 text-zinc-500'
+                                                    }`}
+                                                >
+                                                    {settings.chartDefaults.vpEnabled ? 'ON' : 'OFF'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
                         </div>
 
                         <div className="flex items-center gap-3">

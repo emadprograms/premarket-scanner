@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Badge } from '@/components/ui/core';
 import { getChartBars, getYahooChartBars } from '@/lib/api';
+import { useMission } from '@/lib/context';
 import {
     Target,
     BookOpen,
@@ -62,6 +63,8 @@ export default function ChartPlanView({
     positionSize,
     isBreached,
 }: ChartPlanViewProps) {
+    const { settings: missionSettings } = useMission();
+    const chartDefaults = missionSettings.chartDefaults;
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<any>(null);
@@ -76,11 +79,11 @@ export default function ChartPlanView({
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
     const [showLevels, setShowLevels] = useState(true);
     const [ladderOpen, setLadderOpen] = useState(false);
-    const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>('capital');
-    const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
-    const [resolution, setResolution] = useState('MINUTE_5');
-    const [session, setSession] = useState<'ETH' | 'RTH'>('ETH');
-    const [technicals, setTechnicals] = useState<Set<string>>(new Set(['vp']));
+    const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
+    const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
+    const [resolution, setResolution] = useState(chartDefaults.resolution);
+    const [session, setSession] = useState<'ETH' | 'RTH'>(chartDefaults.session);
+    const [technicals, setTechnicals] = useState<Set<string>>(new Set(chartDefaults.vpEnabled ? ['vp'] : []));
     const barsRef = useRef<any[]>([]);
 
     const toggleTechnical = (key: string) => {

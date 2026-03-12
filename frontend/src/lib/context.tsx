@@ -5,6 +5,13 @@ import dayjs from 'dayjs';
 import { socketService } from './socket';
 import { API_BASE_URL } from './api';
 
+interface ChartDefaults {
+    dataSource: 'capital' | 'yahoo';
+    resolution: string;
+    session: 'ETH' | 'RTH';
+    vpEnabled: boolean;
+}
+
 interface MissionSettings {
     model_name: string;
     mode: 'Live' | 'Simulation';
@@ -19,6 +26,7 @@ interface MissionSettings {
     workstation: 'Scanner' | 'Archive';
     accountAmount: number;
     riskPercentage: number;
+    chartDefaults: ChartDefaults;
 }
 
 interface SystemStatus {
@@ -52,7 +60,13 @@ const defaultSettings: MissionSettings = {
     force_economy_refresh: false,
     workstation: 'Scanner',
     accountAmount: 10000,
-    riskPercentage: 1.0
+    riskPercentage: 1.0,
+    chartDefaults: {
+        dataSource: 'capital',
+        resolution: 'MINUTE_5',
+        session: 'ETH',
+        vpEnabled: true,
+    },
 };
 
 const MissionContext = createContext<MissionContextType | undefined>(undefined);
