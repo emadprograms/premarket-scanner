@@ -705,7 +705,7 @@ export default function ChartPlanView({
                             {/* Left sidebar toggle — top of chart */}
                             <button
                                 onClick={() => setLadderOpen(!ladderOpen)}
-                                className={`absolute top-2 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[200px]' : 'left-0'
+                                className={`absolute top-2 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[260px]' : 'left-0'
                                     } w-5 h-10 rounded-r-md bg-zinc-900/90 border border-l-0 border-white/10 hover:bg-zinc-800 text-zinc-400 hover:text-white backdrop-blur-sm`}
                                 title={ladderOpen ? 'Close price ladder' : 'Open price ladder'}
                             >
@@ -714,39 +714,39 @@ export default function ChartPlanView({
 
                             {/* Tight sidebar panel */}
                             <div
-                                className={`absolute left-0 top-0 z-20 w-[200px] bg-zinc-950/95 backdrop-blur-md border-r border-b border-white/10 rounded-tl-xl rounded-br-lg overflow-y-auto transition-transform duration-300 ease-in-out ${ladderOpen ? 'translate-x-0' : '-translate-x-full'
+                                className={`absolute left-0 top-0 z-20 w-[260px] bg-zinc-950/95 backdrop-blur-md border-r border-b border-white/10 rounded-tl-xl rounded-br-lg overflow-y-auto transition-transform duration-300 ease-in-out ${ladderOpen ? 'translate-x-0' : '-translate-x-full'
                                     }`}
                             >
-                                <div className="py-1">
+                                <div className="py-1.5">
                                     {allLevels.map((lvl, i) => (
                                         <React.Fragment key={i}>
                                             {i === insertIdx && now > 0 && (
-                                                <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border-y border-emerald-500/30">
-                                                    <div className="w-0.5 h-3 rounded-full bg-emerald-400" />
-                                                    <span className="text-[11px] font-mono font-black text-emerald-400">
+                                                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border-y border-emerald-500/30">
+                                                    <div className="w-0.5 h-3.5 rounded-full bg-emerald-400" />
+                                                    <span className="text-xs font-mono font-black text-emerald-400">
                                                         ${now.toFixed(2)}
                                                     </span>
-                                                    <span className="text-[7px] font-bold uppercase text-emerald-500/60">NOW</span>
+                                                    <span className="text-[8px] font-bold uppercase text-emerald-500/60">NOW</span>
                                                 </div>
                                             )}
-                                            <div className={`flex items-center gap-1.5 px-2 py-0.5 ${lvl.type === 'R' ? 'hover:bg-rose-500/5' : 'hover:bg-violet-500/5'} transition-colors`}>
-                                                <div className={`w-0.5 h-2.5 rounded-full ${lvl.type === 'R' ? 'bg-rose-500/40' : 'bg-violet-500/40'}`} />
-                                                <span className={`text-[11px] font-mono font-bold ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'}`}>
+                                            <div className={`flex items-center gap-2 px-3 py-1 ${lvl.type === 'R' ? 'hover:bg-rose-500/5' : 'hover:bg-violet-500/5'} transition-colors`}>
+                                                <div className={`w-0.5 h-3 rounded-full ${lvl.type === 'R' ? 'bg-rose-500/40' : 'bg-violet-500/40'}`} />
+                                                <span className={`text-xs font-mono font-bold ${lvl.type === 'R' ? 'text-rose-400' : 'text-violet-400'}`}>
                                                     ${lvl.price.toFixed(2)}
                                                 </span>
-                                                <span className="text-[9px] text-zinc-500 font-mono truncate">
+                                                <span className="text-[11px] text-zinc-500 font-mono truncate">
                                                     {lvl.label.replace(/\$?[\d,.]+\s*/, '').replace(/^\(/, '').replace(/\)$/, '')}
                                                 </span>
                                             </div>
                                         </React.Fragment>
                                     ))}
                                     {insertIdx === allLevels.length && now > 0 && (
-                                        <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border-t border-emerald-500/30">
-                                            <div className="w-0.5 h-3 rounded-full bg-emerald-400" />
-                                            <span className="text-[11px] font-mono font-black text-emerald-400">
+                                        <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border-t border-emerald-500/30">
+                                            <div className="w-0.5 h-3.5 rounded-full bg-emerald-400" />
+                                            <span className="text-xs font-mono font-black text-emerald-400">
                                                 ${now.toFixed(2)}
                                             </span>
-                                            <span className="text-[7px] font-bold uppercase text-emerald-500/60">NOW</span>
+                                            <span className="text-[8px] font-bold uppercase text-emerald-500/60">NOW</span>
                                         </div>
                                     )}
                                 </div>
