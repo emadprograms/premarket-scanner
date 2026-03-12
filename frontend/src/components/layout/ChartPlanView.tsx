@@ -539,8 +539,9 @@ export default function ChartPlanView({
                 </div>
             </div>
 
-            {/* Timeframe + Data Source Row */}
-            <div className="flex items-center justify-between">
+            {/* Timeframe + Data Source Row — wrapped with chart for fullscreen */}
+            <div ref={chartWrapperRef} className={`${isFullscreen ? 'bg-zinc-950 flex flex-col h-screen' : ''}`}>
+            <div className={`flex items-center justify-between ${isFullscreen ? 'px-4 pt-3 pb-2' : ''}`}>
                 {/* Timeframe Selector — LEFT */}
                 <div className="flex items-center gap-2">
                     <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
@@ -632,16 +633,16 @@ export default function ChartPlanView({
             </div>
 
             {/* Chart */}
-            <div ref={chartWrapperRef} className={`relative ${isFullscreen ? 'bg-zinc-950 p-4' : ''}`}>
+            <div className={`relative ${isFullscreen ? 'flex-1' : ''}`}>
                 <canvas
                     ref={vpCanvasRef}
-                    className={`absolute ${isFullscreen ? 'left-4 top-4' : 'left-0 top-0'} z-10 pointer-events-none`}
+                    className="absolute left-0 top-0 z-10 pointer-events-none"
                     style={{ borderRadius: '0.75rem 0 0 0.75rem' }}
                 />
                 <div
                     ref={chartContainerRef}
                     className="w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950"
-                    style={{ minHeight: isFullscreen ? 'calc(100vh - 2rem)' : 500 }}
+                    style={{ minHeight: isFullscreen ? undefined : 500, height: isFullscreen ? '100%' : undefined }}
                 />
                 {/* Fullscreen toggle */}
                 <button
@@ -760,6 +761,7 @@ export default function ChartPlanView({
             {chartError && (
                 <div className="text-[10px] text-amber-500/80 font-mono text-center">{chartError}</div>
             )}
+            </div>{/* end chartWrapperRef */}
 
             {/* Plan Level Cards */}
             <div className="grid grid-cols-2 gap-3">
