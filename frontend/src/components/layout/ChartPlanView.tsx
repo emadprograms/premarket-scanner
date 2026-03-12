@@ -705,7 +705,7 @@ export default function ChartPlanView({
                             {/* Sidebar toggle tab — on the right edge of the sidebar */}
                             <button
                                 onClick={() => setLadderOpen(!ladderOpen)}
-                                className={`absolute top-1/2 -translate-y-1/2 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[220px]' : 'left-0'
+                                className={`absolute bottom-4 z-30 flex items-center justify-center transition-all duration-300 ${ladderOpen ? 'left-[220px]' : 'left-0'
                                     } w-6 h-16 rounded-r-lg bg-zinc-900/90 border border-l-0 border-white/10 hover:bg-zinc-800 text-zinc-400 hover:text-white backdrop-blur-sm`}
                                 title={ladderOpen ? 'Close price ladder' : 'Open price ladder'}
                             >
