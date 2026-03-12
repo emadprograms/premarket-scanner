@@ -186,13 +186,12 @@ export default function ChartPlanView({
                 rightPriceScale: {
                     borderColor: 'rgba(255,255,255,0.1)',
                     scaleMargins: { top: 0.1, bottom: 0.1 },
-                    minimumWidth: 100, // Plenty of space for plan level labels
                 },
                 timeScale: {
                     borderColor: 'rgba(255,255,255,0.1)',
                     timeVisible: true,
                     secondsVisible: false,
-                    rightOffset: 15,
+                    rightOffset: 5,
                     barSpacing: 12, // Fixed candle width — consistent across all timeframes/sessions
                 },
                 width: chartContainerRef.current.clientWidth,
