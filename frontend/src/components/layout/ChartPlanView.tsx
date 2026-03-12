@@ -370,13 +370,20 @@ export default function ChartPlanView({
                 }
             };
             window.addEventListener('resize', handleResize);
-            const handleFullscreen = () => setTimeout(handleResize, 100);
+            const fullscreenTimers: ReturnType<typeof setTimeout>[] = [];
+            const handleFullscreen = () => {
+                // Fire at multiple intervals to guarantee CSS reflow has completed
+                fullscreenTimers.push(setTimeout(handleResize, 50));
+                fullscreenTimers.push(setTimeout(handleResize, 150));
+                fullscreenTimers.push(setTimeout(handleResize, 300));
+            };
             document.addEventListener('fullscreenchange', handleFullscreen);
 
             // Store cleanup in ref (not on DOM — DOM can detach on re-render)
             cleanupRef.current = () => {
                 window.removeEventListener('resize', handleResize);
                 document.removeEventListener('fullscreenchange', handleFullscreen);
+                fullscreenTimers.forEach(clearTimeout);
                 chart.remove();
                 chartRef.current = null;
             };
