@@ -71,6 +71,17 @@ export default function ChartPlanView({
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>('capital');
     const [resolution, setResolution] = useState('MINUTE_5');
     const [session, setSession] = useState<'ETH' | 'RTH'>('ETH');
+    const [technicals, setTechnicals] = useState<Set<string>>(new Set());
+    const barsRef = useRef<any[]>([]);
+
+    const toggleTechnical = (key: string) => {
+        setTechnicals(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
 
     // Fetch real bars and build chart
     useEffect(() => {
@@ -175,6 +186,7 @@ export default function ChartPlanView({
             if (bars.length > 0) {
                 series.setData(bars);
                 setBarCount(bars.length);
+                barsRef.current = bars;
 
                 // Add session background bands: pre-market (amber) + post-market (blue)
                 // Classify bars by session and create colored background rectangles via histogram
@@ -246,6 +258,101 @@ export default function ChartPlanView({
 
                 // Scroll to the most recent bars — candle width stays fixed via barSpacing
                 chart.timeScale().scrollToRealTime();
+
+                // Volume Profile overlay
+                if (technicals.has('vp')) {
+                    // Add left price scale for VP
+                    chart.applyOptions({
+                        leftPriceScale: {
+                            visible: false,
+                            scaleMargins: { top: 0, bottom: 0 },
+                        },
+                    });
+
+                    const vpSeries = chart.addSeries(HistogramSeries, {
+                        priceScaleId: 'vp',
+                        color: 'rgba(139, 92, 246, 0.25)',
+                        lastValueVisible: false,
+                        priceLineVisible: false,
+                    });
+                    chart.priceScale('vp').applyOptions({
+                        scaleMargins: { top: 0, bottom: 0 },
+                    });
+
+
+                    // Render VP as price lines at each price bucket level
+
+                    const computeAndRenderVP = () => {
+                        const visibleRange = chart.timeScale().getVisibleLogicalRange();
+                        if (!visibleRange) return;
+                        const from = Math.max(0, Math.floor(visibleRange.from));
+                        const to = Math.min(barsRef.current.length - 1, Math.ceil(visibleRange.to));
+                        if (from >= to) return;
+
+                        const visibleBars = barsRef.current.slice(from, to + 1);
+                        
+                        let minP = Infinity, maxP = -Infinity;
+                        for (const b of visibleBars) {
+                            if (b.low < minP) minP = b.low;
+                            if (b.high > maxP) maxP = b.high;
+                        }
+                        if (minP >= maxP) return;
+
+                        const bucketCount = 40;
+                        const step = (maxP - minP) / bucketCount;
+                        const buckets = new Array(bucketCount).fill(0);
+
+                        for (const b of visibleBars) {
+                            const vol = b.volume || 1;
+                            const bLow = Math.max(0, Math.floor((b.low - minP) / step));
+                            const bHigh = Math.min(bucketCount - 1, Math.floor((b.high - minP) / step));
+                            const spread = Math.max(1, bHigh - bLow + 1);
+                            for (let i = bLow; i <= bHigh; i++) {
+                                buckets[i] += vol / spread;
+                            }
+                        }
+
+                        const maxVol = Math.max(...buckets);
+                        if (maxVol === 0) return;
+                        const pocIdx = buckets.indexOf(maxVol);
+
+                        // Remove old VP price lines
+                        (vpSeries as any).__vpLines?.forEach((line: any) => {
+                            try { vpSeries.removePriceLine(line); } catch {}
+                        });
+
+                        // Render VP as price lines with varying widths (visual hack)
+                        const lines: any[] = [];
+                        for (let i = 0; i < bucketCount; i++) {
+                            const price = minP + (i + 0.5) * step;
+                            const normalizedVol = buckets[i] / maxVol;
+                            if (normalizedVol < 0.02) continue;
+                            
+                            const isPOC = i === pocIdx;
+                            const line = vpSeries.createPriceLine({
+                                price,
+                                color: isPOC
+                                    ? `rgba(251, 191, 36, ${0.3 + normalizedVol * 0.5})`
+                                    : `rgba(139, 92, 246, ${0.1 + normalizedVol * 0.4})`,
+                                lineWidth: isPOC ? 2 : 1,
+                                lineStyle: 0, // Solid
+                                axisLabelVisible: isPOC,
+                                title: isPOC ? 'POC' : '',
+                            });
+                            lines.push(line);
+                        }
+                        (vpSeries as any).__vpLines = lines;
+                    };
+
+                    // Set empty data so the series exists
+                    vpSeries.setData([]);
+
+                    // Initial computation
+                    setTimeout(computeAndRenderVP, 100);
+
+                    // Dynamic recalculation on scroll/zoom
+                    chart.timeScale().subscribeVisibleLogicalRangeChange(computeAndRenderVP);
+                }
             } else {
                 setChartError(`${dataSource === 'yahoo' ? 'Yahoo Finance' : 'Capital.com'} data unavailable — showing estimated levels`);
                 generateFallbackData(series, planALevel, planBLevel, livePrice ?? null);
@@ -344,7 +451,7 @@ export default function ChartPlanView({
                 cleanupRef.current = null;
             }
         };
-    }, [ticker, dataSource, resolution, session]);
+    }, [ticker, dataSource, resolution, session, technicals]);
 
     const bias = setupBias || 'Neutral';
     const isBullish = /bull|long/i.test(bias);
@@ -415,6 +522,19 @@ export default function ChartPlanView({
                             RTH
                         </button>
                     </div>
+                </div>
+
+                {/* Technicals — multi-select */}
+                <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                    <button
+                        onClick={() => toggleTechnical('vp')}
+                        className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${technicals.has('vp')
+                            ? 'bg-violet-500/20 text-violet-400 shadow-sm'
+                            : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                    >
+                        VP
+                    </button>
                 </div>
 
                 {/* Position Size — CENTER */}

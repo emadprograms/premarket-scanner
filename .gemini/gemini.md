@@ -147,6 +147,7 @@ The archive API returns cards with these exact field names — the frontend comp
 - **Decision: Widescreen Layout**: Removed `max-w-7xl` cap from main page. Card grid uses `repeat(auto-fill, minmax(280px, 1fr))` so columns scale dynamically — no hardcoded column limits.
 - **Decision: ETH/RTH Session Toggle**: ETH/RTH pill toggle next to timeframe pills. Default ETH. RTH filters bars outside 9:30 AM – 4:00 PM ET using `hourCycle: 'h23'` for DST-safe offset. Skipped for `DAY` resolution. Falls back to ETH if filter removes all bars.
 - **Decision: Yahoo Finance Data Pipeline**: `prepost=True` only for intraday intervals (1m, 5m, 15m, 30m). Naive timestamps (daily bars) localized to US/Eastern before UTC conversion. Bars deduplicated and sorted chronologically. HOUR_4 maps to `4h` interval with 730-day lookback.
+- **Decision: Volume Profile**: Implemented as a toggleable technical indicator ("VP" button next to ETH/RTH). Buckets visible bars into 40 price levels, distributes volume proportionally across each bar's High-Low range, and renders as price lines on a hidden `vp` price scale. POC (Point of Control) highlighted in amber. Dynamically recalculates on scroll/zoom via `subscribeVisibleLogicalRangeChange`. Volume data passed through both Capital.com and Yahoo bar endpoints.
 ## 9. The Data Pipeline
 1.  **Load**: Fetch all active tickers from `aw_ticker_notes` in Turso.
 2.  **Stream**: Connect to Capital.com WebSockets for live BID/ASK prices.

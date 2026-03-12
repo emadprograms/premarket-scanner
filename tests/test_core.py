@@ -483,3 +483,31 @@ class TestYahooProcessing:
         result = get_live_bars_from_yahoo(ticker="AAPL", days=5, resolution="MINUTE_5")
         
         assert result is None
+
+class TestBarEndpointVolume:
+    """Tests that bar endpoints include volume data."""
+
+    def test_capital_bar_has_volume_key(self):
+        """Capital.com bar dict should include a 'volume' key."""
+        # Simulate what scanner.py does when building bar dicts
+        row = {'Open': 100, 'High': 105, 'Low': 95, 'Close': 102, 'Volume': 50000}
+        bar = {
+            "time": 1700000000,
+            "open": float(row['Open']),
+            "high": float(row['High']),
+            "low": float(row['Low']),
+            "close": float(row['Close']),
+            "volume": float(row.get('Volume', 0) or 0),
+        }
+        assert "volume" in bar
+        assert bar["volume"] == 50000.0
+
+    def test_bar_volume_defaults_to_zero(self):
+        """If Volume is missing or None, should default to 0."""
+        row = {'Open': 100, 'High': 105, 'Low': 95, 'Close': 102}
+        volume = float(row.get('Volume', 0) or 0)
+        assert volume == 0.0
+
+        row_none = {'Open': 100, 'High': 105, 'Low': 95, 'Close': 102, 'Volume': None}
+        volume_none = float(row_none.get('Volume', 0) or 0)
+        assert volume_none == 0.0

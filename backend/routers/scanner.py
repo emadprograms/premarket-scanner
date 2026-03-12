@@ -195,6 +195,7 @@ async def get_chart_bars(ticker: str, days: int = 1, resolution: str = "MINUTE_5
                 "high": float(row['High']),
                 "low": float(row['Low']),
                 "close": float(row['Close']),
+                "volume": float(row.get('Volume', 0) or 0),
             })
         
         return GenericResponse(
@@ -239,6 +240,7 @@ async def get_yahoo_chart_bars(ticker: str, days: int = 3, resolution: str = "MI
                 "high": float(row['High']),
                 "low": float(row['Low']),
                 "close": float(row['Close']),
+                "volume": float(row.get('Volume', 0) or 0),
             })
         
         return GenericResponse(
