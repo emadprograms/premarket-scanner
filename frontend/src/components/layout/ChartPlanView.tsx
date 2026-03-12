@@ -544,12 +544,12 @@ export default function ChartPlanView({
             <div className={`flex items-center justify-between ${isFullscreen ? 'px-4 pt-3 pb-2' : ''}`}>
                 {/* Timeframe Selector — LEFT */}
                 <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-lg border border-white/5">
                         {RESOLUTION_LABELS.map(({ key, label }) => (
                             <button
                                 key={key}
                                 onClick={() => setResolution(key)}
-                                className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${resolution === key
+                                className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${resolution === key
                                     ? 'bg-violet-500/20 text-violet-400 shadow-sm'
                                     : 'text-zinc-500 hover:text-zinc-300'
                                     }`}
@@ -558,10 +558,10 @@ export default function ChartPlanView({
                             </button>
                         ))}
                     </div>
-                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-lg border border-white/5">
                         <button
                             onClick={() => setSession('ETH')}
-                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${session === 'ETH'
+                            className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${session === 'ETH'
                                 ? 'bg-amber-500/20 text-amber-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
@@ -570,7 +570,7 @@ export default function ChartPlanView({
                         </button>
                         <button
                             onClick={() => setSession('RTH')}
-                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${session === 'RTH'
+                            className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${session === 'RTH'
                                 ? 'bg-emerald-500/20 text-emerald-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
@@ -578,10 +578,10 @@ export default function ChartPlanView({
                             RTH
                         </button>
                     </div>
-                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-lg border border-white/5">
                         <button
                             onClick={() => toggleTechnical('vp')}
-                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${technicals.has('vp')
+                            className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${technicals.has('vp')
                                 ? 'bg-violet-500/20 text-violet-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
@@ -593,13 +593,13 @@ export default function ChartPlanView({
 
                 {/* Position Size — CENTER */}
                 {(positionSize !== null && positionSize !== undefined) || isBreached ? (
-                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-zinc-900/50 border border-white/5">
-                        <ArrowUpDown className="w-3 h-3 text-zinc-500" />
-                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider">Size:</span>
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-zinc-900/50 border border-white/5">
+                        <ArrowUpDown className="w-3.5 h-3.5 text-zinc-500" />
+                        <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Size:</span>
                         {isBreached ? (
-                            <span className="text-[10px] font-mono font-bold text-zinc-400">N/A</span>
+                            <span className="text-[11px] font-mono font-bold text-zinc-400">N/A</span>
                         ) : positionSize ? (
-                            <span className="text-[10px] font-mono font-bold text-violet-400">{positionSize}</span>
+                            <span className="text-[11px] font-mono font-bold text-violet-400">{positionSize}</span>
                         ) : null}
                     </div>
                 ) : null}
@@ -607,12 +607,12 @@ export default function ChartPlanView({
                 {/* Data Source + Bar Count — RIGHT */}
                 <div className="flex items-center gap-2">
                     {barCount > 0 && (
-                        <span className="text-[9px] text-zinc-500 font-mono">{barCount} bars</span>
+                        <span className="text-[10px] text-zinc-500 font-mono">{barCount} bars</span>
                     )}
-                    <div className="flex items-center bg-zinc-900/50 p-0.5 rounded-lg border border-white/5">
+                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-lg border border-white/5">
                         <button
                             onClick={() => setDataSource('capital')}
-                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'capital'
+                            className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'capital'
                                 ? 'bg-violet-500/20 text-violet-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
@@ -621,7 +621,7 @@ export default function ChartPlanView({
                         </button>
                         <button
                             onClick={() => setDataSource('yahoo')}
-                            className={`px-2 py-0.5 text-[9px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'yahoo'
+                            className={`px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all ${dataSource === 'yahoo'
                                 ? 'bg-indigo-500/20 text-indigo-400 shadow-sm'
                                 : 'text-zinc-500 hover:text-zinc-300'
                                 }`}
