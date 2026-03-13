@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createChart, IChartApi, ColorType, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 import { Badge } from '@/components/ui/core';
 import { getChartBars, getYahooChartBars } from '@/lib/api';
@@ -16,8 +16,6 @@ import {
     Crosshair,
     Maximize2,
     Minimize2,
-    Pencil,
-    Trash2,
 } from 'lucide-react';
 
 // Module-level constants (never re-created on render)
@@ -87,11 +85,6 @@ export default function ChartPlanView({
     const [session, setSession] = useState<'ETH' | 'RTH'>(chartDefaults.session);
     const [technicals, setTechnicals] = useState<Set<string>>(new Set(chartDefaults.vpEnabled ? ['vp'] : []));
     const [highContrast, setHighContrast] = useState(chartDefaults.highContrast);
-    const [drawMode, setDrawMode] = useState(false);
-    const drawnLinesRef = useRef<any[]>([]);
-    const rayPricesRef = useRef<number[]>([]);
-    const drawModeRef = useRef(false);
-    const lastCrosshairPrice = useRef<number | null>(null);
     const barsRef = useRef<any[]>([]);
 
     const toggleTechnical = (key: string) => {
@@ -102,77 +95,6 @@ export default function ChartPlanView({
             return next;
         });
     };
-
-    // Keep drawModeRef in sync
-    useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
-
-    // Alt+J keyboard shortcut to toggle draw mode, Escape to exit
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.altKey && (e.key === 'j' || e.key === 'J')) {
-                e.preventDefault();
-                setDrawMode(prev => !prev);
-            }
-            if (e.key === 'Escape' && drawModeRef.current) {
-                setDrawMode(false);
-            }
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
-
-    const addRayAtPrice = useCallback((price: number) => {
-        if (!seriesRef.current) return;
-        const line = seriesRef.current.createPriceLine({
-            price,
-            color: highContrast ? 'rgba(50, 50, 50, 0.8)' : 'rgba(6, 182, 212, 0.7)',
-            lineWidth: 1,
-            lineStyle: 2, // Dashed
-            axisLabelVisible: true,
-            title: '',
-        });
-        drawnLinesRef.current.push(line);
-        rayPricesRef.current.push(price);
-    }, [highContrast]);
-
-    const clearAllRays = useCallback(() => {
-        if (!seriesRef.current) return;
-        drawnLinesRef.current.forEach(line => {
-            try { seriesRef.current.removePriceLine(line); } catch {}
-        });
-        drawnLinesRef.current = [];
-        rayPricesRef.current = [];
-    }, []);
-
-    // Click handler: place horizontal ray at crosshair price when in draw mode
-    useEffect(() => {
-        const chart = chartRef.current;
-        const series = seriesRef.current;
-        if (!chart || !series || !chartContainerRef.current) return;
-
-        const handleCrosshairForDraw = (param: any) => {
-            if (param.seriesData && param.seriesData.size > 0) {
-                const data = param.seriesData.get(series);
-                if (data) {
-                    lastCrosshairPrice.current = (data.close !== undefined) ? data.close : data.value;
-                }
-            }
-        };
-
-        const handleClick = () => {
-            if (!drawModeRef.current || lastCrosshairPrice.current === null) return;
-            addRayAtPrice(lastCrosshairPrice.current);
-        };
-
-        chart.subscribeCrosshairMove(handleCrosshairForDraw);
-        chartContainerRef.current.addEventListener('click', handleClick);
-
-        const container = chartContainerRef.current;
-        return () => {
-            try { chart.unsubscribeCrosshairMove(handleCrosshairForDraw); } catch {}
-            container?.removeEventListener('click', handleClick);
-        };
-    }, [chartLoading, addRayAtPrice]);
 
     const toggleFullscreen = () => {
         if (!chartWrapperRef.current) return;
@@ -438,20 +360,6 @@ export default function ChartPlanView({
             chartRef.current = chart;
             setChartLoading(false);
 
-            // Re-apply persisted user-drawn rays after chart rebuild
-            drawnLinesRef.current = [];
-            rayPricesRef.current.forEach(price => {
-                const line = series.createPriceLine({
-                    price,
-                    color: highContrast ? 'rgba(50, 50, 50, 0.8)' : 'rgba(6, 182, 212, 0.7)',
-                    lineWidth: 1,
-                    lineStyle: 2,
-                    axisLabelVisible: true,
-                    title: '',
-                });
-                drawnLinesRef.current.push(line);
-            });
-
             // Resize handler — updates both width and height for fullscreen support
             const handleResize = () => {
                 if (chartContainerRef.current) {
@@ -709,28 +617,6 @@ export default function ChartPlanView({
                             HC
                         </button>
                     </div>
-                    <div className="flex items-center bg-zinc-900/50 p-1 rounded-lg border border-white/5">
-                        <button
-                            onClick={() => setDrawMode(prev => !prev)}
-                            className={`px-2 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all flex items-center gap-1 ${drawMode
-                                ? 'bg-cyan-500/20 text-cyan-400 shadow-sm'
-                                : 'text-zinc-500 hover:text-zinc-300'
-                                }`}
-                            title="Draw horizontal ray (Alt+J)"
-                        >
-                            <Pencil className="w-3 h-3" />
-                            RAY
-                        </button>
-                        {drawnLinesRef.current.length > 0 && (
-                            <button
-                                onClick={clearAllRays}
-                                className="px-2 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md transition-all text-zinc-500 hover:text-rose-400 flex items-center gap-1"
-                                title="Clear all rays"
-                            >
-                                <Trash2 className="w-3 h-3" />
-                            </button>
-                        )}
-                    </div>
                 </div>
 
                 {/* Position Size — CENTER */}
@@ -783,7 +669,7 @@ export default function ChartPlanView({
                 />
                 <div
                     ref={chartContainerRef}
-                    className={`w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950 ${drawMode ? 'cursor-crosshair' : ''}`}
+                    className="w-full rounded-xl overflow-hidden border border-white/10 bg-zinc-950"
                     style={{ minHeight: isFullscreen ? undefined : 500, height: isFullscreen ? '100%' : undefined }}
                 />
                 {/* Fullscreen toggle */}
