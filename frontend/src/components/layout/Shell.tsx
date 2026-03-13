@@ -55,7 +55,7 @@ export default function Shell({ children }: ShellProps) {
     const dbConnected = systemStatus?.db_connected;
 
     const navItems = [
-        { id: 'Scanner', icon: Target, label: 'Strategic HQ', color: 'text-primary' },
+        { id: 'Scanner', icon: Target, label: 'Scanner', color: 'text-primary' },
         { id: 'Archive', icon: History, label: 'Archive Room', color: 'text-blue-400' },
     ];
 
