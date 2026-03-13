@@ -156,6 +156,7 @@ The archive API returns cards with these exact field names — the frontend comp
 1.  **Load**: Fetch all active tickers from `aw_ticker_notes` in Turso.
 2.  **Stream**: Connect to Capital.com WebSockets for live BID/ASK prices.
 3.  **Calculate**: Continuously re-calculate the "Tradability Score" (Proximity) for every ticker.
+    - *Note: Setup Bias extraction in `card_extractor.py` captures the full line to support multi-word biases like "Neutral Bullish Lean".*
 4.  **Sort**: Re-order the UI cards in real-time as prices move.
 5.  **Persist**: Economy cards are saved to both local cache and `aw_economy_cards` table on generation.
 

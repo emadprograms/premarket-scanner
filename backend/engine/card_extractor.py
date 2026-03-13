@@ -168,8 +168,8 @@ def _extract_from_string(text: str, result: dict) -> dict:
     if m:
         result["plan_b_text"] = m.group(1).strip()
 
-    # Setup Bias
-    m = re.search(r'Setup_Bias:\s*(\w+)', text)
+    # Setup Bias (can be multiple words like "Neutral Bullish Lean")
+    m = re.search(r'Setup_Bias:\s*([^\n]+)', text)
     if m:
         result["setup_bias"] = m.group(1).strip()
 
