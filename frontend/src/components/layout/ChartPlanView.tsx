@@ -78,7 +78,7 @@ export default function ChartPlanView({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
     const [showLevels, setShowLevels] = useState(true);
-    const [ladderOpen, setLadderOpen] = useState(false);
+    const [ladderOpen, setLadderOpen] = useState(true);
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
     const [resolution, setResolution] = useState(chartDefaults.resolution);
