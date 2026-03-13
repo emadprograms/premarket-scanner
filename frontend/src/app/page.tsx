@@ -538,6 +538,7 @@ export default function UnifiedCommandPage() {
         title={`🔬 ${selectedTicker} — ${modalView === 'chart' ? 'Plan Levels' : modalView === 'briefing' ? 'Screener Briefing' : 'Full Card'}`}
         variant="default"
         hideTitle={true}
+        maxWidthClass={modalView === 'chart' ? 'max-w-[95vw]' : 'max-w-4xl'}
       >
         <div className="space-y-4 max-h-[85vh] overflow-y-auto terminal-scroll pr-2 pt-4">
           {selectedTicker && (() => {
