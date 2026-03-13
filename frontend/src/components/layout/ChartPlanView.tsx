@@ -346,8 +346,8 @@ export default function ChartPlanView({
                     if (p && p !== planALevel && p !== planBLevel) srLevels.push({ price: p, type: 'R' });
                 });
                 srLevels.forEach(({ price, type }) => {
-                    const rColor = highContrast ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.4)';
-                    const sColor = highContrast ? 'rgba(139, 92, 246, 0.7)' : 'rgba(139, 92, 246, 0.4)';
+                    const rColor = highContrast ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.3)';
+                    const sColor = highContrast ? 'rgba(139, 92, 246, 0.7)' : 'rgba(139, 92, 246, 0.3)';
                     series.createPriceLine({
                         price,
                         color: type === 'R' ? rColor : sColor,
