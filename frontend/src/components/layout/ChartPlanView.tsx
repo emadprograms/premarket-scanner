@@ -89,6 +89,7 @@ export default function ChartPlanView({
     const [highContrast, setHighContrast] = useState(chartDefaults.highContrast);
     const [drawMode, setDrawMode] = useState(false);
     const drawnLinesRef = useRef<any[]>([]);
+    const rayPricesRef = useRef<number[]>([]);
     const drawModeRef = useRef(false);
     const lastCrosshairPrice = useRef<number | null>(null);
     const barsRef = useRef<any[]>([]);
@@ -131,6 +132,7 @@ export default function ChartPlanView({
             title: '',
         });
         drawnLinesRef.current.push(line);
+        rayPricesRef.current.push(price);
     }, [highContrast]);
 
     const clearAllRays = useCallback(() => {
@@ -139,6 +141,7 @@ export default function ChartPlanView({
             try { seriesRef.current.removePriceLine(line); } catch {}
         });
         drawnLinesRef.current = [];
+        rayPricesRef.current = [];
     }, []);
 
     // Click handler: place horizontal ray at crosshair price when in draw mode
@@ -434,6 +437,20 @@ export default function ChartPlanView({
 
             chartRef.current = chart;
             setChartLoading(false);
+
+            // Re-apply persisted user-drawn rays after chart rebuild
+            drawnLinesRef.current = [];
+            rayPricesRef.current.forEach(price => {
+                const line = series.createPriceLine({
+                    price,
+                    color: highContrast ? 'rgba(50, 50, 50, 0.8)' : 'rgba(6, 182, 212, 0.7)',
+                    lineWidth: 1,
+                    lineStyle: 2,
+                    axisLabelVisible: true,
+                    title: '',
+                });
+                drawnLinesRef.current.push(line);
+            });
 
             // Resize handler — updates both width and height for fullscreen support
             const handleResize = () => {
