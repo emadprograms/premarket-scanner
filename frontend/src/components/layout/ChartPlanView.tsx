@@ -184,8 +184,8 @@ export default function ChartPlanView({
                 },
                 crosshair: {
                     mode: 0,
-                    vertLine: { color: highContrast ? 'rgba(0,0,0,0.3)' : 'rgba(139,92,246,0.3)', width: 1 },
-                    horzLine: { color: highContrast ? 'rgba(0,0,0,0.3)' : 'rgba(139,92,246,0.3)', width: 1 },
+                    vertLine: { color: highContrast ? 'rgba(0,0,0,0.8)' : 'rgba(139,92,246,0.6)', width: 1 },
+                    horzLine: { color: highContrast ? 'rgba(0,0,0,0.8)' : 'rgba(139,92,246,0.6)', width: 1 },
                 },
                 rightPriceScale: {
                     borderColor: highContrast ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)',
@@ -346,9 +346,11 @@ export default function ChartPlanView({
                     if (p && p !== planALevel && p !== planBLevel) srLevels.push({ price: p, type: 'R' });
                 });
                 srLevels.forEach(({ price, type }) => {
+                    const rColor = highContrast ? 'rgba(239, 68, 68, 0.7)' : 'rgba(239, 68, 68, 0.4)';
+                    const sColor = highContrast ? 'rgba(139, 92, 246, 0.7)' : 'rgba(139, 92, 246, 0.4)';
                     series.createPriceLine({
                         price,
-                        color: type === 'R' ? 'rgba(239, 68, 68, 0.25)' : 'rgba(139, 92, 246, 0.25)',
+                        color: type === 'R' ? rColor : sColor,
                         lineWidth: 1,
                         lineStyle: 3, // Dotted
                         axisLabelVisible: false,
