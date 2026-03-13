@@ -176,6 +176,7 @@ Improved the resilience and error handling of the Discord bot (`discord_bot/bot.
      - `discord.DiscordServerError` (Discord server outage) -> informs users it's a Discord server issue, not a bot bug.
      - `aiohttp.ClientError` (Network error) -> informs users it's an external service reachability issue.
      - `commands.MissingRequiredArgument` / `commands.BadArgument`.
+  - Added early exit for `commands.CommandNotFound` to prevent the bot from replying with errors when users trigger commands meant for other bots in the same server.
 
 3. **Accurate Command Output Messaging:**
    - Replaced generic `⚠️ Internal Error: Could not reach GitHub` with more specific errors differentiating GitHub API issues from Discord send failures in the `!turnon`, `!turnoff` and `!status` commands.

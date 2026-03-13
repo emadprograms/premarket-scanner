@@ -70,6 +70,10 @@ async def on_command_error(ctx, error):
     # Unwrap the CommandInvokeError to get the original cause
     original = getattr(error, "original", error)
 
+    # Ignore commands that don't exist (likely meant for another bot)
+    if isinstance(original, commands.CommandNotFound):
+        return
+
     if isinstance(original, discord.DiscordServerError):
         msg = (f"⚠️ **Discord is having issues** (HTTP {original.status})\n"
                f"> This is a Discord server-side outage — not a bug in the bot.\n"
