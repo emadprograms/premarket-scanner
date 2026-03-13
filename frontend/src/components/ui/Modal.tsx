@@ -9,9 +9,10 @@ interface ModalProps {
     children: React.ReactNode;
     footer?: React.ReactNode;
     variant?: 'default' | 'destructive' | 'warning';
+    hideTitle?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, children, footer, variant = 'default' }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, footer, variant = 'default', hideTitle = false }: ModalProps) {
     const modalRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -45,19 +46,28 @@ export function Modal({ isOpen, onClose, title, children, footer, variant = 'def
                 ref={modalRef}
                 className="relative w-full max-w-[95vw] bg-background/95 border border-border rounded-xl shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-4 duration-300"
             >
-                <div className="flex items-center justify-between p-6 border-b border-border/50">
-                    <div className="flex items-center gap-3">
-                        {variant === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
-                        {variant === 'destructive' && <AlertTriangle className="w-5 h-5 text-destructive" />}
-                        <h2 className="text-lg font-bold tracking-tight">{title}</h2>
+                {!hideTitle ? (
+                    <div className="flex items-center justify-between p-6 border-b border-border/50">
+                        <div className="flex items-center gap-3">
+                            {variant === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-500" />}
+                            {variant === 'destructive' && <AlertTriangle className="w-5 h-5 text-destructive" />}
+                            <h2 className="text-lg font-bold tracking-tight">{title}</h2>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
                     </div>
+                ) : (
                     <button
                         onClick={onClose}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        className="absolute top-3 right-3 z-10 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
                     >
-                        <X className="w-5 h-5" />
+                        <X className="w-4 h-4" />
                     </button>
-                </div>
+                )}
 
                 <div className="p-6">
                     {children}
