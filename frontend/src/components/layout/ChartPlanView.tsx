@@ -78,7 +78,14 @@ export default function ChartPlanView({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [expandedPlan, setExpandedPlan] = useState<'A' | 'B' | null>(null);
     const [showLevels, setShowLevels] = useState(true);
-    const [ladderOpen, setLadderOpen] = useState(true);
+    const [ladderOpen, setLadderOpen] = useState(false);
+
+    // Auto-open ladder when chart finishes loading
+    useEffect(() => {
+        if (!chartLoading) {
+            setLadderOpen(true);
+        }
+    }, [chartLoading]);
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
     const [resolution, setResolution] = useState(chartDefaults.resolution);
