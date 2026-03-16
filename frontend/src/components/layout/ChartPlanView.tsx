@@ -80,12 +80,7 @@ export default function ChartPlanView({
     const [showLevels, setShowLevels] = useState(true);
     const [ladderOpen, setLadderOpen] = useState(false);
 
-    // Auto-open ladder when chart finishes loading
-    useEffect(() => {
-        if (!chartLoading) {
-            setLadderOpen(true);
-        }
-    }, [chartLoading]);
+
     const [dataSource, setDataSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
     const [chartSource, setChartSource] = useState<'capital' | 'yahoo'>(chartDefaults.dataSource);
     const [resolution, setResolution] = useState(chartDefaults.resolution);
@@ -93,6 +88,13 @@ export default function ChartPlanView({
     const [technicals, setTechnicals] = useState<Set<string>>(new Set(chartDefaults.vpEnabled ? ['vp'] : []));
     const [highContrast, setHighContrast] = useState(chartDefaults.highContrast);
     const barsRef = useRef<any[]>([]);
+
+    // Auto-open ladder when chart finishes loading (unless High Contrast is ON)
+    useEffect(() => {
+        if (!chartLoading && !highContrast) {
+            setLadderOpen(true);
+        }
+    }, [chartLoading, highContrast]);
 
     const toggleTechnical = (key: string) => {
         setTechnicals(prev => {
