@@ -257,22 +257,17 @@ export default function CardEditorView() {
                                         ? selectedCard?.date === card.date
                                         : selectedCard?.date === card.date && selectedCard?.ticker === card.ticker;
 
-                                    // Parse Setup Bias from screener_briefing for company cards
-                                    let setupBias = null;
+                                    // Parse Trend Bias from confidence for company cards
+                                    let trendBias = null;
                                     if (selectedType === 'company' && card.company_card_json) {
                                         try {
                                             const cardData = typeof card.company_card_json === 'string'
                                                 ? JSON.parse(card.company_card_json)
                                                 : card.company_card_json;
 
-                                            if (cardData?.screener_briefing) {
-                                                const lines = cardData.screener_briefing.split('\n');
-                                                for (const line of lines) {
-                                                    if (line.includes('Setup_Bias:')) {
-                                                        setupBias = line.split(':')[1]?.trim().toUpperCase();
-                                                        break;
-                                                    }
-                                                }
+                                            if (cardData?.confidence) {
+                                                const biasMatch = cardData.confidence.match(/(?:Trend_)?Bias:\s*([\w\s]+?)(?=\.|$|Confidence:|Reasoning:|[\-\(\)])/i);
+                                                if (biasMatch) trendBias = biasMatch[1].trim().toUpperCase();
                                             }
                                         } catch (e) {
                                             console.error("Failed to parse card data for sidebar", e);
@@ -282,23 +277,30 @@ export default function CardEditorView() {
                                     const renderBiasIcon = (bias: string | null) => {
                                         if (!bias) return null;
                                         const b = bias.toLowerCase();
-                                        const isBullish = b === 'bullish';
-                                        const isBearish = b === 'bearish';
+                                        
+                                        // Pure Biases (Emerald/Rose)
+                                        const isPureBullish = b === 'bullish';
+                                        const isPureBearish = b === 'bearish';
+                                        
+                                        // Leans and Neutrals (Grey / Muted)
                                         const isNeutralBullish = b.includes('neutral') && b.includes('bullish');
                                         const isNeutralBearish = b.includes('neutral') && b.includes('bearish');
                                         const isNeutral = b === 'neutral' || b === '-';
 
-                                        if (isBullish) return <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />;
-                                        if (isBearish) return <TrendingDown className="w-3.5 h-3.5 text-rose-500" />;
-                                        if (isNeutralBullish) return <TrendingUp className="w-3.5 h-3.5 text-muted-foreground/30" />;
-                                        if (isNeutralBearish) return <TrendingDown className="w-3.5 h-3.5 text-muted-foreground/30" />;
-                                        if (isNeutral) return <Minus className="w-3.5 h-3.5 text-muted-foreground/30" />;
+                                        if (isPureBullish) return <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />;
+                                        if (isPureBearish) return <TrendingDown className="w-3.5 h-3.5 text-rose-500" />;
+                                        
+                                        // Leans use grey arrows
+                                        if (isNeutralBullish) return <TrendingUp className="w-3.5 h-3.5 text-zinc-500" />;
+                                        if (isNeutralBearish) return <TrendingDown className="w-3.5 h-3.5 text-zinc-500" />;
+                                        
+                                        if (isNeutral) return <Minus className="w-3.5 h-3.5 text-zinc-600" />;
 
                                         // Fallback for complex strings
                                         if (b.includes('bull')) return <TrendingUp className="w-3.5 h-3.5 text-emerald-500/60" />;
                                         if (b.includes('bear')) return <TrendingDown className="w-3.5 h-3.5 text-rose-500/60" />;
 
-                                        return <Minus className="w-3.5 h-3.5 text-muted-foreground/20" />;
+                                        return <Minus className="w-3.5 h-3.5 text-zinc-600" />;
                                     };
 
                                     return (
@@ -332,9 +334,9 @@ export default function CardEditorView() {
                                                         <span className={`text-xs font-black tracking-tight ${isSelected ? 'text-blue-400' : 'text-foreground/90 group-hover:text-blue-400'} transition-all truncate`}>
                                                             {selectedType === 'company' ? card.ticker : card.date}
                                                         </span>
-                                                        {selectedType === 'company' && setupBias && (
+                                                        {selectedType === 'company' && trendBias && (
                                                             <div className="flex items-center">
-                                                                {renderBiasIcon(setupBias)}
+                                                                {renderBiasIcon(trendBias)}
                                                             </div>
                                                         )}
                                                         {selectedType === 'company' && (
